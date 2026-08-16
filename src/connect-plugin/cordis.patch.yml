@@ -1,0 +1,6 @@
+# dsh-connect-center bundle patch:
+# 只往 Web 客户端 roster 里插入一个设置页插件行。
+# 实际的渠道安装/启动/停止由 Electron 主进程通过 window.desktopAPI.connect 完成。
+- insert:
+    - id: ui-connect-center
+      name: 'dsh-connect-center'

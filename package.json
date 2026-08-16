@@ -1,0 +1,17 @@
+{
+  "name": "deepseek-harness-desktop",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness 桌面端（Electron）：自动检测 dsh 是否安装，缺组件可一键下载安装，双击即开。",
+  "main": "src/main/main.js",
+  "author": "deepseek-harness-desktop",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --win dir",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3"
+  }
+}

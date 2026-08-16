@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'" />
+    <title>互联中心 - DeepSeek Harness</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell connect-shell">
+      <header class="hero">
+        <img class="logo" src="../../assets/icon.png" alt="DeepSeek Harness" />
+        <h1>互联中心</h1>
+        <p class="subtitle">把聊天渠道接入 dsh，扫码绑定后即可通过渠道对话</p>
+      </header>
+
+      <section id="channel-list" class="panel channel-panel">
+        <!-- 由 connect.js 渲染 -->
+      </section>
+
+      <section class="panel console-panel">
+        <div class="console-head">
+          <h2 id="console-title">运行输出</h2>
+          <span id="console-status" class="stage">未运行</span>
+        </div>
+        <pre id="console" class="log console"></pre>
+      </section>
+
+      <footer class="foot">
+        <span>渠道安装写入 ~/.dsh/profiles/&lt;name&gt;，与官方 CLI 共用</span>
+      </footer>
+    </main>
+
+    <script src="connect.js"></script>
+  </body>
+</html>

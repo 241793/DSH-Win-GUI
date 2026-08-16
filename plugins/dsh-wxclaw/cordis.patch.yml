@@ -1,0 +1,15 @@
+# dsh-wxclaw bundle patch
+- insert:
+    - id: im-wxclaw
+      name: 'dsh-wxclaw'
+      config:
+        apiUrl: __FROM_ENV__
+        token: __FROM_ENV__
+        xWechatUin: __FROM_ENV__
+        pollIntervalSec: 2
+        textChunkLimit: 4000
+        sessionIdleTimeout: 1800000
+        streaming: true
+        showToolResults: false
+        adminIds: []
+        debug: false

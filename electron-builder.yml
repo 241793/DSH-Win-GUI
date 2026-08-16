@@ -1,0 +1,30 @@
+appId: com.deepseek.harness.desktop
+productName: DeepSeek Harness
+copyright: Copyright © 2026
+directories:
+  output: dist
+  buildResources: assets
+files:
+  - src/**/*
+  - assets/**/*
+  - plugins/**/*
+  - package.json
+asar: true
+compression: normal
+npmRebuild: false
+electronDist: node_modules/electron/dist
+win:
+  icon: assets/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DeepSeek Harness
+  artifactName: ${productName}-Setup-${version}.${ext}
+publish: null

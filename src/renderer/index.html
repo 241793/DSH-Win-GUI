@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'" />
+    <title>DeepSeek Harness</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <img class="logo" src="../../assets/icon.png" alt="DeepSeek Harness" />
+        <h1>DeepSeek Harness</h1>
+        <p class="subtitle">桌面端启动器</p>
+      </header>
+
+      <section id="view-checking" class="panel view">
+        <div class="spinner"></div>
+        <p>正在检测运行环境…</p>
+      </section>
+
+      <section id="view-starting" class="panel view" hidden>
+        <div class="spinner"></div>
+        <p>正在启动 DeepSeek Harness…</p>
+        <p class="hint">首次启动需要初始化 profile，可能需要几秒到十几秒。</p>
+      </section>
+
+      <section id="view-install" class="panel view" hidden>
+        <h2>需要安装运行组件</h2>
+        <ul class="status-list">
+          <li id="row-node" class="row pending">
+            <span class="dot"></span>
+            <span class="label">Node.js（≥ <span id="min-node">22.5.0</span>）</span>
+            <span id="node-detail" class="detail">检测中…</span>
+          </li>
+          <li id="row-npm" class="row pending">
+            <span class="dot"></span>
+            <span class="label">npm</span>
+            <span id="npm-detail" class="detail">检测中…</span>
+          </li>
+          <li id="row-dsh" class="row pending">
+            <span class="dot"></span>
+            <span class="label">DeepSeek Harness（dsh）</span>
+            <span id="dsh-detail" class="detail">检测中…</span>
+          </li>
+          <li id="row-dist" class="row pending">
+            <span class="dot"></span>
+            <span class="label">Web 前端资源</span>
+            <span id="dist-detail" class="detail">检测中…</span>
+          </li>
+        </ul>
+
+        <div id="install-actions">
+          <button id="btn-install" class="primary">下载并安装</button>
+          <button id="btn-recheck" class="ghost">重新检测</button>
+        </div>
+
+        <div id="install-progress" hidden>
+          <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+          <div id="progress-stage" class="stage">准备中…</div>
+          <pre id="install-log" class="log"></pre>
+        </div>
+      </section>
+
+      <section id="view-error" class="panel view" hidden>
+        <h2>出错了</h2>
+        <pre id="error-text" class="error-text"></pre>
+        <div class="actions">
+          <button id="btn-retry" class="primary">重试</button>
+          <button id="btn-install-from-error" class="ghost">进入安装页</button>
+        </div>
+      </section>
+
+      <footer class="foot">
+        <span id="version-line"></span>
+        <button id="btn-connect" class="linkish">互联中心</button>
+        <a href="https://github.com/deepseek-ai/deepseek-harness" id="repo-link">deepseek-harness</a>
+      </footer>
+    </main>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>
