@@ -53,6 +53,7 @@ if (isFile) {
     install: () => ipcRenderer.invoke('install-harness'),
     cancelInstall: () => ipcRenderer.invoke('cancel-install'),
     openExternal: (url) => ipcRenderer.invoke('open-external', url),
+    copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
     connect: connectApi,
     market: marketApi,
     pluginInstall: pluginInstallApi,

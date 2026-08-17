@@ -1,14 +1,40 @@
 {
   "name": "dsh-wxclaw",
   "version": "0.1.0",
-  "description": "wxclaw (ilink Bot) IM channel plugin for deepseek-harness (dsh)",
+  "description": "WxClaw (ilink Bot) WeChat channel plugin for deepseek-harness (dsh): scan QR to bind a WeChat account and chat with dsh through WeChat.",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
     ".": "./dist/index.js",
     "./package.json": "./package.json"
   },
+  "files": [
+    "dist/index.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "wechat",
+    "wxclaw",
+    "ilink-bot",
+    "im-channel"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/<你的用户名>/dsh-wxclaw.git"
+  },
+  "bugs": {
+    "url": "https://github.com/<你的用户名>/dsh-wxclaw/issues"
+  },
+  "homepage": "https://github.com/<你的用户名>/dsh-wxclaw#readme",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

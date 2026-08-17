@@ -7,7 +7,7 @@ const { pathToFileURL } = require('node:url');
 const os = require('node:os');
 const path = require('node:path');
 const installer = require('./installer');
-const { runCapture } = require('./util');
+const { envWithNodePath, runCapture } = require('./util');
 
 /** 支持的互联渠道列表（新增渠道在这里加一项即可）。 */
 const CHANNELS = [
@@ -269,7 +269,7 @@ async function updateChannel(managedDirs, detection, channel, report) {
     'add', spec,
   ], {
     cwd: os.homedir(),
-    env: { ...process.env, PATH: pnpm.pathEnv },
+    env: envWithNodePath(dsh.nodePath, { PATH: pnpm.pathEnv, npm_config_dangerously_allow_all_builds: 'true' }),
   }, report);
 
   if (code !== 0) throw new Error(`渠道更新失败（退出码 ${code}）`);
@@ -373,11 +373,11 @@ async function ensurePnpm(managedDirs, nodeInfo, report) {
     '--no-audit',
     '--no-fund',
     'pnpm@latest',
-  ], {}, report);
+  ], { env: envWithNodePath(nodeInfo.nodePath) }, report);
   if (code !== 0) throw new Error(`pnpm 安装失败（退出码 ${code}）`);
 
   const binDir = path.join(prefix, 'node_modules', '.bin');
-  const pathEnv = `${binDir};${process.env.PATH || ''}`;
+  const pathEnv = `${path.dirname(nodeInfo.nodePath)};${binDir};${process.env.PATH || ''}`;
   report({ type: 'log', message: 'pnpm 安装完成' });
   return { source: 'managed', version: null, pathEnv };
 }
@@ -517,7 +517,7 @@ async function installCliChannel(managedDirs, detection, channel, report) {
       '--no-audit',
       '--no-fund',
       spec,
-    ], {}, report);
+    ], { env: envWithNodePath(nodePath) }, report);
 
     if (code !== 0) throw new Error(`频道安装失败（${packageName} 退出码 ${code}）`);
   }
@@ -545,7 +545,7 @@ async function installChannel(managedDirs, detection, channel, report) {
     'add', channel.package,
   ], {
     cwd: os.homedir(),
-    env: { ...process.env, PATH: pnpm.pathEnv },
+    env: envWithNodePath(dsh.nodePath, { PATH: pnpm.pathEnv, npm_config_dangerously_allow_all_builds: 'true' }),
   }, report);
 
   if (code !== 0) throw new Error(`频道插件安装失败（退出码 ${code}）`);
@@ -937,7 +937,7 @@ async function startCliChannel(managedDirs, detection, channel, report) {
   const spawnChild = (label, args) => {
     const child = spawn(nodePath, args, {
       cwd: os.homedir(),
-      env: { ...process.env, ...(channel.env || {}) },
+      env: envWithNodePath(nodePath, { ...(channel.env || {}), npm_config_dangerously_allow_all_builds: 'true' }),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
@@ -1097,7 +1097,7 @@ async function startChannel(managedDirs, detection, channel, report) {
 
     const child = spawn(dsh.nodePath, [dsh.dsh.binPath, '--profile', channel.profile], {
       cwd: os.homedir(),
-      env: spawnEnv,
+      env: envWithNodePath(dsh.nodePath, { ...spawnEnv, npm_config_dangerously_allow_all_builds: 'true' }),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
@@ -1273,7 +1273,7 @@ async function switchChannelAccount(managedDirs, detection, channel, report) {
       report({ type: 'log', message: `执行绑定命令：openclaw channels login --channel ${channel.bindChannel}` });
       const code = await runWithOutput(nodePath, bindArgs, {
         cwd: os.homedir(),
-        env: { ...process.env, ...(channel.env || {}) },
+        env: envWithNodePath(nodePath, { ...(channel.env || {}), npm_config_dangerously_allow_all_builds: 'true' }),
       }, report);
       if (code !== 0) {
         report({ type: 'log', message: `绑定命令退出码 ${code}，请查看上方日志中的二维码/提示。` });
@@ -1317,7 +1317,7 @@ async function uninstallChannel(managedDirs, detection, channel, report) {
       'remove', channel.package,
     ], {
       cwd: os.homedir(),
-      env: { ...process.env, PATH: pnpm.pathEnv },
+      env: envWithNodePath(dsh.nodePath, { PATH: pnpm.pathEnv, npm_config_dangerously_allow_all_builds: 'true' }),
     }, report);
     if (code !== 0) throw new Error(`频道卸载失败（退出码 ${code}）`);
     report({ type: 'log', message: '频道插件已卸载' });

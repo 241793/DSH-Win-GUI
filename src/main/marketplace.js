@@ -4,6 +4,7 @@ const { existsSync, readFileSync } = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const channels = require('./channels');
+const { envWithNodePath } = require('./util');
 
 const MARKET_URL = 'https://www.dshplugin.store';
 const INSTALL_PROFILE = 'web';
@@ -167,7 +168,7 @@ async function installMarketplacePlugin(managedDirs, detection, repoPath, report
     'add', commands.spec,
   ], {
     cwd: os.homedir(),
-    env: { ...process.env, PATH: pnpm.pathEnv },
+    env: envWithNodePath(dsh.nodePath, { PATH: pnpm.pathEnv, npm_config_dangerously_allow_all_builds: 'true' }),
   }, report);
 
   if (code !== 0) throw new Error(`插件安装失败（退出码 ${code}）`);
@@ -192,7 +193,7 @@ async function uninstallMarketplacePlugin(managedDirs, detection, spec, report) 
     'remove', spec,
   ], {
     cwd: os.homedir(),
-    env: { ...process.env, PATH: pnpm.pathEnv },
+    env: envWithNodePath(dsh.nodePath, { PATH: pnpm.pathEnv, npm_config_dangerously_allow_all_builds: 'true' }),
   }, report);
 
   if (code !== 0) throw new Error(`插件卸载失败（退出码 ${code}）`);

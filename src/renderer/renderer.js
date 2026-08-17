@@ -181,14 +181,25 @@ document.getElementById('btn-install-from-error').addEventListener('click', () =
     refreshAndStart();
   }
 });
+
+const btnCopyError = document.getElementById('btn-copy-error');
+btnCopyError.addEventListener('click', async () => {
+  const errorMessage = errorText.textContent || '';
+  const logText = installLogLines.length > 0 ? installLogLines.join('\n') : '（无安装日志）';
+  const fullText = `[错误信息]\n${errorMessage}\n\n[安装日志]\n${logText}\n`;
+  try {
+    await api.copyText(fullText);
+    btnCopyError.textContent = '已复制，可粘贴提交';
+    setTimeout(() => { btnCopyError.textContent = '复制报错日志'; }, 2000);
+  } catch {
+    btnCopyError.textContent = '复制失败';
+    setTimeout(() => { btnCopyError.textContent = '复制报错日志'; }, 2000);
+  }
+});
 document.getElementById('repo-link').addEventListener('click', (event) => {
   event.preventDefault();
   api.openExternal('https://github.com/deepseek-ai/deepseek-harness');
 });
-document.getElementById('btn-connect').addEventListener('click', () => {
-  api.openConnect();
-});
-
 api.onInstallProgress(appendProgress);
 api.onBackendProgress(() => {
   showView('starting');

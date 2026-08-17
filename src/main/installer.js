@@ -106,7 +106,29 @@ async function ensureHarness(managedDirs, detection, report) {
     if (!existsSync(prefixPkg)) {
       writeFileSync(prefixPkg, JSON.stringify({ name: 'deepseek-harness-runtime', private: true, version: '0.0.0' }, null, 2));
     }
-    await runNpmInstall(nodePath, npmCliPath, managedDirs.prefix, report);
+    let installError = null;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        await runNpmInstall(nodePath, npmCliPath, managedDirs.prefix, report);
+        installError = null;
+        break;
+      } catch (error) {
+        installError = error;
+        // npm 可能因缓存/脚本告警返回非 0，但包实际已可用；以落盘结果为准。
+        const fallback = probeDshPrefix(managedDirs.prefix);
+        if (fallback && fallback.frontendDistOk) {
+          report({ type: 'log', message: `npm 返回异常（${error && error.message ? error.message : error}），但 dsh 已成功安装，继续。` });
+          installError = null;
+          break;
+        }
+        if (attempt < 2) {
+          report({ type: 'log', message: `第 ${attempt} 次安装失败，清理不完整文件后重试…` });
+          rmSync(path.join(managedDirs.prefix, 'node_modules'), { recursive: true, force: true });
+          rmSync(path.join(managedDirs.prefix, 'package-lock.json'), { force: true });
+        }
+      }
+    }
+    if (installError) throw installError;
     dsh = probeDshPrefix(managedDirs.prefix);
     if (!dsh || !dsh.frontendDistOk) {
       throw new Error('安装完成但未找到 dsh 或前端资源，请查看日志。');
@@ -133,9 +155,15 @@ function runNpmInstall(nodePath, npmCliPath, prefix, report) {
       '--no-audit',
       '--no-fund',
       '--loglevel', 'info',
+      '--fetch-retries', '3',
+      '--fetch-timeout', '120000',
       `${DSH_PACKAGE}@${DSH_VERSION}`,
     ];
-    const child = runNpm(nodePath, npmCliPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = runNpm(nodePath, npmCliPath, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      // runNpm 会自动把 node 所在目录注入 PATH，确保 koffi/node-pty 的
+      // install 脚本通过 cmd 调用 `node` 时能找到 node。
+    });
     let settled = false;
     const finish = (fn, arg) => {
       if (!settled) { settled = true; fn(arg); }
@@ -159,8 +187,13 @@ function runNpmInstall(nodePath, npmCliPath, prefix, report) {
       stderrBuf = lines.pop();
       lines.forEach(handleLine);
     });
-    child.on('error', (error) => finish(reject, error));
+    // npm 拉包阶段可能长时间没有完整一行输出，心跳保证界面能看到“还在动”。
+    const heartbeat = setInterval(() => {
+      if (!settled) report({ type: 'log', message: '正在安装依赖，请耐心等待…' });
+    }, 8000);
+    child.on('error', (error) => { clearInterval(heartbeat); finish(reject, error); });
     child.on('close', (code) => {
+      clearInterval(heartbeat);
       if (stdoutBuf.trim()) handleLine(stdoutBuf);
       if (stderrBuf.trim()) handleLine(stderrBuf);
       if (cancelled) {
@@ -168,7 +201,10 @@ function runNpmInstall(nodePath, npmCliPath, prefix, report) {
         return;
       }
       if (code === 0) finish(resolve);
-      else finish(reject, new Error(`npm install 退出码 ${code}`));
+      else {
+        const lastLines = stderrBuf.trim().split(/\r?\n/).slice(-6).join(' | ');
+        finish(reject, new Error(`npm install 退出码 ${code}${lastLines ? `：${lastLines}` : ''}`));
+      }
     });
   });
 }

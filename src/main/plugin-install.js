@@ -4,6 +4,7 @@ const { existsSync, readFileSync, writeFileSync, mkdirSync } = require('node:fs'
 const path = require('node:path');
 const os = require('node:os');
 const channels = require('./channels');
+const { envWithNodePath } = require('./util');
 
 const INSTALL_PROFILE = 'web';
 
@@ -110,7 +111,7 @@ async function runDshPluginAdd(managedDirs, detection, spec, report) {
     'add', spec,
   ], {
     cwd: os.homedir(),
-    env: { ...process.env, PATH: pnpm.pathEnv },
+    env: envWithNodePath(dsh.nodePath, { PATH: pnpm.pathEnv, npm_config_dangerously_allow_all_builds: 'true' }),
   }, report);
   if (code !== 0) throw new Error(`插件安装失败（退出码 ${code}）`);
   return true;
@@ -232,7 +233,7 @@ async function removeInstalledPlugin(managedDirs, detection, name, report) {
     'remove', name,
   ], {
     cwd: os.homedir(),
-    env: { ...process.env, PATH: pnpm.pathEnv },
+    env: envWithNodePath(dsh.nodePath, { PATH: pnpm.pathEnv, npm_config_dangerously_allow_all_builds: 'true' }),
   }, report);
   if (code !== 0) throw new Error(`插件卸载失败（退出码 ${code}）`);
   channels.removeProfilePatchEntry(INSTALL_PROFILE, name, report);

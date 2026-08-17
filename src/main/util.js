@@ -113,11 +113,37 @@ function resolveNpmCli(nodePath) {
   return null;
 }
 
-/** 使用 node + npm-cli.js 运行 npm，避免 shell/.cmd 的转义问题。 */
+/**
+ * 构造子进程环境变量：把 node 所在目录放到 PATH 最前面。
+ * Windows 下环境变量名大小写不敏感，先删除 Path/PATH/path 再写入单一 PATH，
+ * 避免 env 对象里出现大小写不同的重复键，导致 npm 生命周期脚本（koffi/node-pty）
+ * 通过 cmd 调用 `node` 时找不到 node。
+ * @param {string} nodePath node 可执行文件绝对路径
+ * @param {object} [extraEnv] 需要覆盖/追加的环境变量
+ */
+function envWithNodePath(nodePath, extraEnv = {}) {
+  const env = { ...process.env };
+  const nodeDir = path.dirname(nodePath);
+  const currentPath = process.env.PATH || process.env.Path || process.env.path || '';
+  const extraPath = extraEnv.PATH !== undefined ? extraEnv.PATH
+    : (extraEnv.Path !== undefined ? extraEnv.Path : extraEnv.path);
+  delete env.PATH;
+  delete env.Path;
+  delete env.path;
+  Object.assign(env, extraEnv);
+  delete env.PATH;
+  delete env.Path;
+  delete env.path;
+  env.PATH = extraPath !== undefined ? extraPath : `${nodeDir}${path.delimiter}${currentPath}`;
+  return env;
+}
+
+/** 使用 node + npm-cli.js 运行 npm，避免 shell/.cmd 的转义问题；env 默认注入 node 目录到 PATH。 */
 function runNpm(nodePath, npmCliPath, args = [], options = {}) {
   return spawn(nodePath, [npmCliPath, ...args], {
     windowsHide: true,
     ...options,
+    env: envWithNodePath(nodePath, options.env),
   });
 }
 
@@ -230,6 +256,7 @@ module.exports = {
   runCapture,
   resolveNpmCli,
   runNpm,
+  envWithNodePath,
   downloadFile,
   extractZip,
   resolveDshInstall,

@@ -1,13 +1,40 @@
 {
   "name": "dsh-connect-center",
   "version": "0.1.0",
-  "description": "DeepSeek Harness 互联中心设置页插件：通过 Electron IPC bridge 管理渠道 profile（QQ Bot 等）。",
+  "description": "DeepSeek Harness connect center settings plugin: manage IM channel profiles (QQ Bot, WxClaw), plugin marketplace, and plugin installer from the dsh web settings UI.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "settings",
+    "im-channel",
+    "plugin-marketplace"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/<你的用户名>/dsh-connect-center.git"
+  },
+  "bugs": {
+    "url": "https://github.com/<你的用户名>/dsh-connect-center/issues"
+  },
+  "homepage": "https://github.com/<你的用户名>/dsh-connect-center#readme",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
   },
   "dsh": {
     "client": {
@@ -25,6 +52,5 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  },
-  "license": "MIT"
+  }
 }

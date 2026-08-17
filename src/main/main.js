@@ -1,9 +1,10 @@
 'use strict';
 
-const { app, BrowserWindow, dialog, ipcMain, Menu, shell } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } = require('electron');
+const { rmSync } = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { compareVersions } = require('./util');
+const { compareVersions, envWithNodePath } = require('./util');
 
 const detector = require('./detector');
 const installer = require('./installer');
@@ -122,12 +123,26 @@ function buildMenu() {
           label: 'QQ Bot 插件文档',
           click: () => shell.openExternal('https://www.npmjs.com/package/@tencent-connect/dsh-qqbot'),
         },
+        { type: 'separator' },
+        {
+          label: '卸载 DSH',
+          click: () => {
+            uninstallDsh().catch((error) => {
+              console.error('dsh-desktop: 卸载 DSH 失败：', error && error.message ? error.message : error);
+            });
+          },
+        },
+        { type: 'separator' },
         {
           label: '关于',
           click: () => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('show-about');
-            }
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: '关于 DeepSeek Harness 桌面端',
+              message: 'DeepSeek Harness 桌面端',
+              detail: 'by：不才\n\n源码：https://github.com/241793/DSH-Win-GUI\n\n说明：如果觉得有不完善或者需要加功能，可以把源码拉取，然后给 AI 说明；或者让 Harness 编写插件进行 DIY。',
+              buttons: ['确定'],
+            });
           },
         },
       ],
@@ -195,7 +210,7 @@ async function runDshUpdate(detection, latestVersion) {
   const args = [npmCliPath, 'install', '-g', `@deepseek-ai/dsh@${latestVersion}`, '--registry', 'https://registry.npmmirror.com'];
   const { spawn } = require('node:child_process');
   await new Promise((resolve, reject) => {
-    const child = spawn(nodePath, args, { windowsHide: true, stdio: 'ignore' });
+    const child = spawn(nodePath, args, { windowsHide: true, stdio: 'ignore', env: envWithNodePath(nodePath) });
     child.on('error', reject);
     child.on('close', (code) => {
       if (code === 0) resolve();
@@ -207,6 +222,76 @@ async function runDshUpdate(detection, latestVersion) {
     type: 'info',
     title: '检查DSH更新',
     message: `dsh 已更新到 v${latestVersion}`,
+    buttons: ['确定'],
+  });
+}
+
+/** 卸载 DSH：停止后端，移除全局或自管安装的 dsh，并回到启动页。 */
+async function uninstallDsh() {
+  const detection = await detector.detectAll(managedDirs());
+  if (!detection.dsh) {
+    await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: '卸载 DSH',
+      message: '未检测到 dsh，无需卸载。',
+      buttons: ['确定'],
+    });
+    return;
+  }
+
+  const version = detection.dsh.version || '?';
+  const scope = detection.dsh.source === 'managed' ? '应用自管目录' : '全局 npm';
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    title: '卸载 DSH',
+    message: `确定要卸载 DeepSeek Harness (dsh) v${version} 吗？`,
+    detail: `安装位置：${scope}\n\n卸载会停止正在运行的 dsh web 并移除 dsh 程序。你的会话与 profile 数据（~/.dsh）会保留。之后可在启动页重新安装。`,
+    buttons: ['卸载', '取消'],
+    defaultId: 1,
+    cancelId: 1,
+  });
+  if (result.response !== 0) return;
+
+  backend.stopBackend(backendChild);
+  backendChild = null;
+  backendUrl = null;
+
+  try {
+    if (detection.dsh.source === 'managed') {
+      const prefix = managedDirs().prefix;
+      rmSync(prefix, { recursive: true, force: true });
+    } else {
+      const { nodePath, npmCliPath } = detection.node || {};
+      if (!nodePath || !npmCliPath) throw new Error('未找到可用的 Node/npm，无法卸载全局 dsh。');
+      const { spawn } = require('node:child_process');
+      await new Promise((resolve, reject) => {
+        const child = spawn(nodePath, [npmCliPath, 'uninstall', '-g', '@deepseek-ai/dsh'], { windowsHide: true, stdio: 'ignore', env: envWithNodePath(nodePath) });
+        child.on('error', reject);
+        child.on('close', (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`dsh 卸载失败（退出码 ${code}）`));
+        });
+      });
+    }
+  } catch (error) {
+    await dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      title: '卸载 DSH',
+      message: '卸载失败',
+      detail: error && error.message ? error.message : String(error),
+      buttons: ['确定'],
+    });
+    return;
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    await mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  }
+  await dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    title: '卸载 DSH',
+    message: 'DeepSeek Harness (dsh) 已卸载',
+    detail: '会话与 profile 数据已保留。如需再次使用，可在启动页点击「下载并安装」。',
     buttons: ['确定'],
   });
 }
@@ -277,6 +362,11 @@ function registerIpc() {
 
   ipcMain.handle('open-external', (_event, url) => {
     if (typeof url === 'string' && /^https?:/i.test(url)) shell.openExternal(url);
+    return true;
+  });
+
+  ipcMain.handle('clipboard:write', (_event, text) => {
+    clipboard.writeText(String(text || ''));
     return true;
   });
 
@@ -460,7 +550,9 @@ function registerIpc() {
 
 function sendToConnect(channelId, payload) {
   const message = { channelId, ...payload };
-  for (const win of [mainWindow, connectWindow]) {
+  // 目前只有一个主窗口，connect-output 直接发给 mainWindow；
+  // 之前这里引用了未定义的 connectWindow，安装市场插件时会抛 ReferenceError。
+  for (const win of [mainWindow]) {
     if (win && !win.isDestroyed()) {
       win.webContents.send('connect-output', message);
     }
