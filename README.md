@@ -5,7 +5,9 @@
 > 官方 CLI：`@deepseek-ai/dsh`（`dsh` 命令）。本项目是官方预留 Electron 壳形态的实用实现：Electron 主进程负责检测、安装、拉起后端，窗口加载官方 Web UI。
 
 ---
-![Uploading 2265f588-477d-4f46-829b-37d2b6d04add.png…]()
+<img width="1676" height="915" alt="2265f588-477d-4f46-829b-37d2b6d04add" src="https://github.com/user-attachments/assets/c1b29262-479d-46ff-a3e3-2a56d50b85f9" />
+<img width="1620" height="906" alt="2e1ac705-bdcf-47be-9873-f918bf8d7656" src="https://github.com/user-attachments/assets/6c924620-4ec9-4e7f-9c59-b53595083214" />
+
 
 ## 1. 功能特性
 
