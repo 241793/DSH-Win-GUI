@@ -15,7 +15,8 @@ let busy = false;
 
 function stripAnsi(text) {
   return String(text)
-    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
+    // 非贪婪匹配每个 OSC 序列（含 OSC 8 超链接），避免把中间的可见文本一起吞掉
+    .replace(/\x1b\][^\x07]*?(?:\x07|\x1b\\)/g, '')
     .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
 }
 

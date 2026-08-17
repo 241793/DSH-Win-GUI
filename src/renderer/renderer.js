@@ -34,6 +34,7 @@ const errorText = document.getElementById('error-text');
 
 let detection = null;
 let installing = false;
+let ccTuiBusy = false;
 let installLogLines = [];
 
 function showView(name) {
@@ -60,19 +61,23 @@ function appendProgress(payload) {
     const message = payload.message || '';
     logInstall(message);
     if (message.includes('正在安装')) progressStage.textContent = '正在安装 DeepSeek Harness（npm install）…';
-    else if (message.includes('下载')) progressStage.textContent = '正在下载 Node.js…';
+    else if (message.includes('下载')) progressStage.textContent = message.includes('CC-TUI') || message.includes('tarball') ? '正在下载 CC-TUI…' : '正在下载 Node.js…';
     else if (message.includes('解压')) progressStage.textContent = '正在解压 Node.js…';
-    else if (message.includes('安装完成') || message.includes('已存在')) progressStage.textContent = '安装完成';
+    else if (message.includes('安装完成') || message.includes('已存在')) progressStage.textContent = message.includes('CC-TUI') ? 'CC-TUI 安装完成' : '安装完成';
+  } else if (payload.type === 'output') {
+    const text = payload.text || '';
+    logInstall(`${payload.stream === 'stderr' ? '[err] ' : ''}${text}`);
   } else if (payload.type === 'progress') {
+    const stageLabel = payload.stage === 'cc-tui' ? 'CC-TUI' : 'Node.js';
     if (typeof payload.percent === 'number' && payload.percent >= 0) {
       progressBar.style.width = `${payload.percent}%`;
-      progressStage.textContent = `正在下载 Node.js… ${payload.percent}%`;
+      progressStage.textContent = `正在下载 ${stageLabel}… ${payload.percent}%`;
     } else if (payload.received) {
-      progressStage.textContent = `正在下载 Node.js… ${(payload.received / 1024 / 1024).toFixed(1)} MB`;
+      progressStage.textContent = `正在下载 ${stageLabel}… ${(payload.received / 1024 / 1024).toFixed(1)} MB`;
     }
   } else if (payload.type === 'done') {
     progressBar.style.width = '100%';
-    progressStage.textContent = '安装完成';
+    progressStage.textContent = payload.message || '安装完成';
   }
 }
 
@@ -179,6 +184,32 @@ document.getElementById('btn-install-from-error').addEventListener('click', () =
     installProgress.hidden = true;
   } else {
     refreshAndStart();
+  }
+});
+const btnCcTui = document.getElementById('btn-cc-tui');
+btnCcTui.addEventListener('click', async () => {
+  if (ccTuiBusy) return;
+  ccTuiBusy = true;
+  btnCcTui.disabled = true;
+  showView('install');
+  installActions.hidden = true;
+  installProgress.hidden = false;
+  progressBar.style.width = '0%';
+  progressStage.textContent = '正在处理 CC-TUI…';
+  logInstall('正在打开 CC-TUI 终端修复…');
+  try {
+    const result = await api.ccTui.open();
+    if (result && result.busy) {
+      logInstall('CC-TUI 正在处理中，请稍候…');
+    } else {
+      logInstall('CC-TUI 已打开，可在终端中继续排查/修复。');
+    }
+  } catch (error) {
+    logInstall(`CC-TUI 操作失败：${error && error.message ? error.message : error}`);
+    showError(error);
+  } finally {
+    ccTuiBusy = false;
+    btnCcTui.disabled = false;
   }
 });
 

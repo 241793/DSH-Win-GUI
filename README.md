@@ -19,6 +19,7 @@
 - **启动 Harness**：拉起 `dsh web --port 0`，解析真实端口，把窗口导航到 `http://127.0.0.1:<端口>`。
 - **退出清理**：应用退出时 `taskkill /T /F` 清理后端进程树。
 - **检查 DSH 更新**：菜单栏「检查DSH更新」，从 npmmirror 获取最新版本，有新版本弹窗询问是否更新；更新完成后自动重启 dsh web。
+- **CC-TUI 终端修复**：菜单栏「帮助」旁的「CC-TUI」或启动报错页的「CC-TUI 终端修复」按钮，会检测是否已安装 [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)（支持 `cc-tui` / `tui` 两种 profile）；未安装则自动安装（优先 npmmirror 的 `dsh-tui` 包，失败时回退 GitHub tarball）并显示进度，已安装则打开系统终端里的 `dsh --profile cc-tui` 原生交互界面，方便 dsh web 报错时通过终端排查修复。
 
 ### 1.2 互联（渠道对接，集成在 Harness Web UI）
 
@@ -248,7 +249,7 @@ harness/
 │     └─ dist/index.js
 └─ src/
    ├─ main/                   # Electron 主进程
-   │  ├─ main.js              # 入口：窗口、菜单（检查DSH更新/帮助）、IPC、生命周期
+   │  ├─ main.js              # 入口：窗口、菜单（检查DSH更新/CC-TUI/帮助）、IPC、生命周期
    │  ├─ detector.js          # 环境检测
    │  ├─ installer.js         # 一键安装 Node/dsh
    │  ├─ backend.js           # dsh web 后端启动/停止 + 装载 dsh-connect-center
@@ -266,6 +267,7 @@ harness/
    │  └─ preload.js           # contextBridge：file: 全量 API；127.0.0.1 暴露 connect/market/pluginInstall
    └─ renderer/               # 启动页 UI（connect.html/connect.js 为历史遗留，当前菜单已不入口）
       ├─ index.html / renderer.js / styles.css
+      ├─ cc-tui-progress.html / cc-tui-progress.js   # CC-TUI 安装进度窗口
       ├─ connect.html / connect.js
 ```
 

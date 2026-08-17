@@ -29,6 +29,10 @@ const pluginInstallApi = {
   onOutput: (callback) => on('connect-output', callback),
 };
 
+const ccTuiApi = {
+  open: () => ipcRenderer.invoke('cc-tui:open'),
+};
+
 const connectApi = {
   getChannels: () => ipcRenderer.invoke('connect:get-channels'),
   install: (channelId) => ipcRenderer.invoke('connect:install', channelId),
@@ -57,6 +61,7 @@ if (isFile) {
     connect: connectApi,
     market: marketApi,
     pluginInstall: pluginInstallApi,
+    ccTui: ccTuiApi,
     onInstallProgress: (callback) => on('install-progress', callback),
     onBackendProgress: (callback) => on('backend-progress', callback),
     versions: () => ({

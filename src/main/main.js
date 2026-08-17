@@ -1,10 +1,11 @@
 'use strict';
 
 const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } = require('electron');
-const { rmSync } = require('node:fs');
+const { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } = require('node:fs');
+const { spawn } = require('node:child_process');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { compareVersions, envWithNodePath } = require('./util');
+const { compareVersions, downloadFile, envWithNodePath } = require('./util');
 
 const detector = require('./detector');
 const installer = require('./installer');
@@ -16,8 +17,16 @@ const pluginInstall = require('./plugin-install');
 let mainWindow = null;
 let backendChild = null;
 let backendUrl = null;
+let ccTuiProgressWindow = null;
+let ccTuiOpening = false;
 
 const APP_ICON = path.join(__dirname, '..', '..', 'assets', 'icon.png');
+const CC_TUI_PACKAGE = 'dsh-tui';
+const CC_TUI_PROFILE = 'cc-tui';
+const CC_TUI_PROFILE_CANDIDATES = ['cc-tui', 'tui'];
+const CC_TUI_REPO = 'https://github.com/ccch1mneyyy/dsh-TUI';
+const CC_TUI_REPO_TARBALL = 'https://api.github.com/repos/ccch1mneyyy/dsh-TUI/tarball';
+const CC_TUI_NPM_SPEC = `${CC_TUI_PACKAGE}@latest`;
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -102,6 +111,240 @@ function parseUrl(value) {
   }
 }
 
+/**
+ * 检测 CC-TUI 安装到了哪个 profile。
+ * 只要 profile 目录存在且有 package.json 就算已安装（用户手动 dsh --profile cc-tui 能跑就行）。
+ * 支持 cc-tui（用户手动安装）和 tui（历史/自动安装）两种 profile 名。
+ * @returns {string|null} 已安装的 profile 名；未安装返回 null。
+ */
+function detectCcTuiProfile() {
+  for (const profileName of CC_TUI_PROFILE_CANDIDATES) {
+    const dir = channels.profileDir(profileName);
+    if (existsSync(path.join(dir, 'package.json'))) return profileName;
+  }
+  return null;
+}
+
+/** 打开 CC-TUI 安装进度窗口（菜单触发时使用，避免打断正在显示的 dsh web）。 */
+function showCcTuiProgressWindow() {
+  if (ccTuiProgressWindow && !ccTuiProgressWindow.isDestroyed()) {
+    ccTuiProgressWindow.focus();
+    return;
+  }
+  ccTuiProgressWindow = new BrowserWindow({
+    width: 640,
+    height: 420,
+    title: 'CC-TUI 安装进度',
+    backgroundColor: '#0b0f14',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, '..', 'preload', 'cc-tui-progress-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  ccTuiProgressWindow.loadFile(path.join(__dirname, '..', 'renderer', 'cc-tui-progress.html'));
+  ccTuiProgressWindow.on('closed', () => { ccTuiProgressWindow = null; });
+}
+
+/** 把 CC-TUI 进度同时发给启动页安装日志和进度窗口。 */
+function sendCcTuiProgress(payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('install-progress', payload);
+  }
+  if (ccTuiProgressWindow && !ccTuiProgressWindow.isDestroyed()) {
+    ccTuiProgressWindow.webContents.send('cc-tui-progress', payload);
+  }
+}
+
+/** 关闭 CC-TUI 进度窗口（如果开着）。 */
+function closeCcTuiProgressWindow() {
+  if (ccTuiProgressWindow && !ccTuiProgressWindow.isDestroyed()) {
+    ccTuiProgressWindow.close();
+    ccTuiProgressWindow = null;
+  }
+}
+
+/**
+ * 安装 CC-TUI 到指定 profile（默认 cc-tui）。
+ * 优先走 npmmirror 的 npm 包（速度快、国内可用）；失败时回退到
+ * GitHub 仓库 tarball（无需 git，和 dsh web 修复入口的安装方式一致）。
+ */
+async function installCcTui(detection, pnpm, profileName = CC_TUI_PROFILE) {
+  const baseArgs = [
+    detection.dsh.binPath,
+    'plugin',
+    '--profile', profileName,
+  ];
+
+  sendCcTuiProgress({ type: 'log', message: `执行：dsh plugin --profile ${profileName} add ${CC_TUI_NPM_SPEC} --dangerously-allow-all-builds` });
+  let code = await channels.runWithOutput(detection.node.path, [
+    ...baseArgs,
+    'add', CC_TUI_NPM_SPEC,
+    '--dangerously-allow-all-builds',
+  ], {
+    cwd: app.getPath('home'),
+    env: envWithNodePath(detection.node.path, {
+      PATH: pnpm.pathEnv,
+      npm_config_dangerously_allow_all_builds: 'true',
+      npm_config_registry: 'https://registry.npmmirror.com',
+    }),
+  }, (payload) => sendCcTuiProgress(payload));
+
+  if (code === 0 && profileHasCcTui(channels.profileDir(profileName))) return true;
+  if (code !== 0) {
+    sendCcTuiProgress({ type: 'log', message: `npm 安装失败（退出码 ${code}），改为从 GitHub 仓库 tarball 安装…` });
+  } else {
+    sendCcTuiProgress({ type: 'log', message: 'npm 命令结束但未检测到 CC-TUI 包，改为从 GitHub 仓库 tarball 安装…' });
+  }
+
+  const tarballFile = path.join(managedDirs().runtimeDir, 'cc-tui', 'dsh-TUI.tgz');
+  sendCcTuiProgress({ type: 'log', message: `下载 ${CC_TUI_REPO_TARBALL} …` });
+  await downloadFile(CC_TUI_REPO_TARBALL, tarballFile, (p) => {
+    sendCcTuiProgress({ type: 'progress', stage: 'cc-tui', ...p });
+  });
+  sendCcTuiProgress({ type: 'log', message: `下载完成：${tarballFile}` });
+
+  sendCcTuiProgress({ type: 'log', message: `执行：dsh plugin --profile ${profileName} add ${tarballFile} --dangerously-allow-all-builds` });
+  code = await channels.runWithOutput(detection.node.path, [
+    ...baseArgs,
+    'add', tarballFile,
+    '--dangerously-allow-all-builds',
+  ], {
+    cwd: app.getPath('home'),
+    env: envWithNodePath(detection.node.path, {
+      PATH: pnpm.pathEnv,
+      npm_config_dangerously_allow_all_builds: 'true',
+      npm_config_registry: 'https://registry.npmmirror.com',
+    }),
+  }, (payload) => sendCcTuiProgress(payload));
+
+  if (code !== 0) throw new Error(`CC-TUI 安装失败（退出码 ${code}）`);
+  return true;
+}
+
+/** 在系统终端里打开 dsh --profile <profile> 的原生交互界面。 */
+function openCcTuiTerminal(dsh, profileName = CC_TUI_PROFILE) {
+  const { nodePath, binPath, prefix } = dsh;
+  if (process.platform === 'win32') {
+    const nodeDir = path.dirname(nodePath);
+    const batchFile = path.join(app.getPath('temp'), 'dsh-cc-tui-launcher.cmd');
+    // 始终用检测到的绝对路径直接调用 node + bin.js（和启动 dsh web 用的是同一套路径），
+    // 不依赖 dsh.cmd 是否存在，避免不同电脑环境差异导致黑屏。
+    writeFileSync(batchFile, [
+      '@echo off',
+      `set "PATH=${nodeDir}${prefix ? ';' + prefix : ''};%PATH%"`,
+      'cd /d "%USERPROFILE%"',
+      `"${nodePath}" "${binPath}" --profile ${profileName}`,
+      'if %ERRORLEVEL% NEQ 0 (',
+      '  echo.',
+      `  echo CC-TUI 启动失败，退出码：%ERRORLEVEL%`,
+      '  echo node: ' + nodePath,
+      '  echo dsh: ' + binPath,
+      '  echo profile: ' + profileName,
+      '  pause',
+      ')',
+      '',
+    ].join('\r\n'));
+
+    const child = spawn(
+      'cmd.exe',
+      ['/d', '/s', '/c', `start "CC-TUI" "${batchFile}"`],
+      { detached: true, stdio: 'ignore', windowsHide: false, windowsVerbatimArguments: true },
+    );
+    child.on('error', (error) => {
+      console.error('dsh-desktop: 打开 CC-TUI 终端失败：', error && error.message ? error.message : error);
+      dialog.showErrorBox('CC-TUI', `打开终端失败：${error && error.message ? error.message : error}`);
+    });
+    child.unref();
+  } else {
+    const child = spawn('x-terminal-emulator', ['-e', `"${nodePath}" "${binPath}" --profile ${profileName}`], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.on('error', (error) => {
+      console.error('dsh-desktop: 打开 CC-TUI 终端失败：', error && error.message ? error.message : error);
+      dialog.showErrorBox('CC-TUI', `打开终端失败：${error && error.message ? error.message : error}`);
+    });
+    child.unref();
+  }
+}
+
+/**
+ * CC-TUI 入口：检测是否安装 dsh-tui（支持 cc-tui / tui 两种 profile）；
+ * 未安装则自动安装并回报进度；已安装则直接打开系统终端里的 dsh --profile <profile>。
+ */
+async function openCcTui(options = {}) {
+  const showWindow = options.showWindow !== false;
+  if (ccTuiOpening) {
+    sendCcTuiProgress({ type: 'log', message: 'CC-TUI 正在处理中，请稍候…' });
+    if (showWindow) showCcTuiProgressWindow();
+    return { ok: false, busy: true };
+  }
+  ccTuiOpening = true;
+  const showProgressWindow = () => {
+    if (showWindow) showCcTuiProgressWindow();
+  };
+  try {
+    let detection = await detector.detectAll(managedDirs());
+    if (!detection.ready) {
+      showProgressWindow();
+      sendCcTuiProgress({ type: 'log', message: '运行环境未就绪，先安装缺失组件…' });
+      await installer.ensureHarness(managedDirs(), detection, (payload) => {
+        if (payload && payload.type === 'done') {
+          sendCcTuiProgress({ type: 'log', message: '运行环境准备完成，继续安装 CC-TUI…' });
+        } else {
+          sendCcTuiProgress(payload);
+        }
+      });
+      detection = await detector.detectAll(managedDirs());
+    }
+    if (!detection.ready || !detection.node || !detection.dsh) {
+      throw new Error('运行环境仍未就绪，无法使用 CC-TUI。');
+    }
+
+    const dshInfo = {
+      nodePath: detection.node.path,
+      binPath: detection.dsh.binPath,
+      prefix: detection.dsh.prefix,
+    };
+
+    const existingProfile = detectCcTuiProfile();
+    if (existingProfile) {
+      sendCcTuiProgress({ type: 'log', message: `检测到 CC-TUI 已安装（profile：${existingProfile}），正在打开终端…` });
+      openCcTuiTerminal(dshInfo, existingProfile);
+      sendCcTuiProgress({ type: 'done', message: 'CC-TUI 已在终端中打开' });
+      setTimeout(closeCcTuiProgressWindow, 1200);
+      return { ok: true, installed: true, profile: existingProfile };
+    }
+
+    showProgressWindow();
+    sendCcTuiProgress({ type: 'log', message: `未检测到 CC-TUI（${CC_TUI_REPO}），开始安装到 profile：${CC_TUI_PROFILE} …` });
+    const pnpm = await channels.ensurePnpm(
+      managedDirs(),
+      { nodePath: detection.node.path, npmCliPath: detection.node.npm.cliPath },
+      (payload) => sendCcTuiProgress(payload),
+    );
+    await installCcTui(detection, pnpm, CC_TUI_PROFILE);
+    const installedProfile = detectCcTuiProfile();
+    if (!installedProfile) {
+      throw new Error('CC-TUI 安装完成但未检测到插件包，请查看日志。');
+    }
+
+    sendCcTuiProgress({ type: 'log', message: `CC-TUI 安装完成（profile：${installedProfile}），正在打开终端…` });
+    openCcTuiTerminal(dshInfo, installedProfile);
+    sendCcTuiProgress({ type: 'done', message: 'CC-TUI 已在终端中打开' });
+    setTimeout(closeCcTuiProgressWindow, 1200);
+    return { ok: true, installed: false };
+  } catch (error) {
+    sendCcTuiProgress({ type: 'log', message: `CC-TUI 操作失败：${error && error.message ? error.message : error}` });
+    throw error;
+  } finally {
+    ccTuiOpening = false;
+  }
+}
+
 function buildMenu() {
   return Menu.buildFromTemplate([
     {
@@ -109,6 +352,15 @@ function buildMenu() {
       click: () => {
         checkDshUpdate().catch((error) => {
           console.error('dsh-desktop: 检查更新失败：', error && error.message ? error.message : error);
+        });
+      },
+    },
+    {
+      label: 'CC-TUI',
+      click: () => {
+        openCcTui({ showWindow: true }).catch((error) => {
+          console.error('dsh-desktop: CC-TUI 操作失败：', error && error.message ? error.message : error);
+          dialog.showErrorBox('CC-TUI', error && error.message ? error.message : String(error));
         });
       },
     },
@@ -296,6 +548,33 @@ async function uninstallDsh() {
   });
 }
 
+/**
+ * 启动 dsh web 后端；若因 profile 插件文件缺失/损坏（如 pnpm 安装不完整）
+ * 导致 ERR_MODULE_NOT_FOUND，先重装 profile 依赖再重试一次。
+ */
+async function startBackendWithRepair(detection) {
+  const cwd = app.getPath('home');
+  try {
+    return await backend.startBackend(detection.dsh, { cwd });
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    if (!/ERR_MODULE_NOT_FOUND|Cannot find module|failed to import loader entry/.test(message)) {
+      throw error;
+    }
+    console.error('dsh-desktop: 启动失败（profile 插件文件缺失），尝试修复 profile 依赖：', message);
+    await channels.installProfileDeps(managedDirs(), detection, 'web', (payload) => {
+      sendToRenderer('install-progress', payload);
+    });
+    // 重装会把内置互联中心插件一并清掉，这里重新复制回去。
+    try {
+      backend.ensureConnectCenterPlugin();
+    } catch (error) {
+      console.error('dsh-desktop: 恢复互联中心插件失败：', error && error.message ? error.message : error);
+    }
+    return await backend.startBackend(detection.dsh, { cwd });
+  }
+}
+
 /** 重启 dsh web 后端，让 profile 插件变更立即生效。 */
 async function restartHarnessBackend() {
   const detection = await detector.detectAll(managedDirs());
@@ -303,7 +582,7 @@ async function restartHarnessBackend() {
   backend.stopBackend(backendChild);
   backendChild = null;
   backendUrl = null;
-  const started = await backend.startBackend(detection.dsh, { cwd: app.getPath('home') });
+  const started = await startBackendWithRepair(detection);
   backendChild = started.child;
   backendUrl = started.url;
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -323,15 +602,18 @@ function registerIpc() {
     return detector.detectAll(managedDirs());
   });
 
+  ipcMain.handle('cc-tui:open', () => {
+    // 报错页/启动页本身已经能展示安装日志与进度条，无需再弹独立进度窗口。
+    return openCcTui({ showWindow: false });
+  });
+
   ipcMain.handle('start-harness', async () => {
     const detection = await detector.detectAll(managedDirs());
     if (!detection.ready) {
       throw new Error('运行环境未就绪，请先安装缺失组件。');
     }
     sendToRenderer('backend-progress', { stage: 'starting' });
-    const started = await backend.startBackend(detection.dsh, {
-      cwd: app.getPath('home'),
-    });
+    const started = await startBackendWithRepair(detection);
     backendChild = started.child;
     backendUrl = started.url;
 

@@ -4,7 +4,7 @@ const { spawn } = require('node:child_process');
 const { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { sleep } = require('./util');
+const { envWithNodePath, sleep } = require('./util');
 const channels = require('./channels');
 
 const URL_PATTERN = /dsh web:\s+(http:\/\/127\.0\.0\.1:\d+)/;
@@ -108,7 +108,10 @@ function ensureConnectCenterPlugin() {
 async function startBackend(dsh, options = {}) {
   const { nodePath, binPath } = dsh;
   const cwd = options.cwd || os.homedir();
-  const env = { ...process.env, ...(options.env || {}) };
+  const env = envWithNodePath(nodePath, {
+    npm_config_dangerously_allow_all_builds: 'true',
+    ...(options.env || {}),
+  });
   const timeout = options.timeout || 60000;
 
   // 先确保互联中心设置页插件已装入 web profile，再启动 dsh web。
@@ -170,4 +173,4 @@ function stopBackend(child) {
   } catch { /* noop */ }
 }
 
-module.exports = { startBackend, stopBackend, probeUrl };
+module.exports = { startBackend, stopBackend, probeUrl, ensureConnectCenterPlugin };

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'" />
+    <title>CC-TUI 安装进度</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="progress-body">
+    <main class="progress-shell">
+      <h1>CC-TUI</h1>
+      <p class="subtitle">终端版 DeepSeek Harness</p>
+      <div class="progress-track"><div id="cc-tui-progress-bar" class="progress-bar"></div></div>
+      <div id="cc-tui-stage" class="stage">准备中…</div>
+      <pre id="cc-tui-log" class="log"></pre>
+    </main>
+    <script src="cc-tui-progress.js"></script>
+  </body>
+</html>

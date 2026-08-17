@@ -160,12 +160,13 @@ async function installMarketplacePlugin(managedDirs, detection, repoPath, report
   const dsh = await channels.ensureDsh(managedDirs, detection, report);
   const pnpm = await channels.ensurePnpm(managedDirs, { nodePath: dsh.nodePath, npmCliPath: dsh.npmCliPath }, report);
 
-  report({ type: 'log', message: `执行：dsh plugin --profile ${commands.profile} add ${commands.spec}` });
+  report({ type: 'log', message: `执行：dsh plugin --profile ${commands.profile} add ${commands.spec} --dangerously-allow-all-builds` });
   const code = await channels.runWithOutput(dsh.nodePath, [
     dsh.dsh.binPath,
     'plugin',
     '--profile', commands.profile,
     'add', commands.spec,
+    '--dangerously-allow-all-builds',
   ], {
     cwd: os.homedir(),
     env: envWithNodePath(dsh.nodePath, { PATH: pnpm.pathEnv, npm_config_dangerously_allow_all_builds: 'true' }),

@@ -1,7 +1,7 @@
 'use strict';
 
 const { spawn } = require('node:child_process');
-const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, statSync } = require('node:fs');
+const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, renameSync, rmSync, statSync } = require('node:fs');
 const { createRequire } = require('node:module');
 const { pathToFileURL } = require('node:url');
 const os = require('node:os');
@@ -261,12 +261,13 @@ async function updateChannel(managedDirs, detection, channel, report) {
   // 让 @latest 继续解析到旧版（例如 0.2.0），显式版本号能确保真正安装目标版本。
   const latestVersion = await fetchLatestVersion(channel.package);
   const spec = latestVersion ? `${channel.package}@${latestVersion}` : `${channel.package}@latest`;
-  report({ type: 'log', message: `执行：dsh plugin --profile ${channel.profile} add ${spec}` });
+  report({ type: 'log', message: `执行：dsh plugin --profile ${channel.profile} add ${spec} --dangerously-allow-all-builds` });
   const code = await runWithOutput(dsh.nodePath, [
     dsh.dsh.binPath,
     'plugin',
     '--profile', channel.profile,
     'add', spec,
+    '--dangerously-allow-all-builds',
   ], {
     cwd: os.homedir(),
     env: envWithNodePath(dsh.nodePath, { PATH: pnpm.pathEnv, npm_config_dangerously_allow_all_builds: 'true' }),
@@ -382,6 +383,44 @@ async function ensurePnpm(managedDirs, nodeInfo, report) {
   return { source: 'managed', version: null, pathEnv };
 }
 
+/**
+ * 重新安装/修复 profile 依赖。
+ * pnpm 的 .modules.yaml 会缓存“已安装”状态，单独删包目录甚至 install --force
+ * 都无法恢复缺失文件；最可靠的是移除整个 profile node_modules 后重装。
+ */
+async function installProfileDeps(managedDirs, detection, profileName, report) {
+  const dsh = await ensureDsh(managedDirs, detection, report);
+  const pnpm = await ensurePnpm(managedDirs, { nodePath: dsh.nodePath, npmCliPath: dsh.npmCliPath }, report);
+
+  const modulesDir = path.join(profileDir(profileName), 'node_modules');
+  report({ type: 'log', message: `清理不完整的 profile 依赖目录：${modulesDir}` });
+  try {
+    rmSync(modulesDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 500 });
+  } catch (error) {
+    report({ type: 'log', message: `直接删除失败（${error && error.message ? error.message : error}），尝试重命名旧目录…` });
+    try {
+      renameSync(modulesDir, `${modulesDir}.broken-${Date.now()}`);
+    } catch (error2) {
+      report({ type: 'log', message: `重命名旧目录也失败（${error2 && error2.message ? error2.message : error2}），将继续重装，可能不完整。` });
+    }
+  }
+
+  report({ type: 'log', message: `执行：dsh plugin --profile ${profileName} install --force --dangerously-allow-all-builds（重装 profile 依赖）` });
+  const code = await runWithOutput(dsh.nodePath, [
+    dsh.dsh.binPath,
+    'plugin',
+    '--profile', profileName,
+    'install',
+    '--force',
+    '--dangerously-allow-all-builds',
+  ], {
+    cwd: os.homedir(),
+    env: envWithNodePath(dsh.nodePath, { PATH: pnpm.pathEnv, npm_config_dangerously_allow_all_builds: 'true' }),
+  }, report);
+  if (code !== 0) throw new Error(`profile 依赖修复失败（退出码 ${code}）`);
+  return true;
+}
+
 /** 给已安装的 qqbot 插件打机器人信息日志补丁（Bot ready 时输出 botId/botName）。 */
 function patchQqbotReadyLog(channel, report) {
   if (channel.id !== 'qqbot') return;
@@ -426,14 +465,20 @@ async function installLocalPluginChannel(managedDirs, detection, channel, report
   rmSync(destDir, { recursive: true, force: true });
   copyLocalPlugin(pluginDir, destDir);
 
-  // qrcode-terminal 用于在终端/日志里渲染二维码（从 qqbot profile 复用，若存在）。
-  const qrSrc = path.join(profileDir('qqbot'), 'node_modules', 'qrcode-terminal');
-  const qrDest = path.join(dir, 'node_modules', 'qrcode-terminal');
-  if (existsSync(qrSrc)) {
-    rmSync(qrDest, { recursive: true, force: true });
-    copyLocalPlugin(qrSrc, qrDest);
-  } else {
-    report({ type: 'log', message: '未找到 qrcode-terminal，扫码二维码将以链接形式显示。' });
+  // qrcode-terminal 用于在终端/日志里渲染二维码：
+  // 1) 本地插件已自带（vendored）时无需额外处理；
+  // 2) 否则从 qqbot profile 复用；
+  // 3) 都没有时，退化为链接（链接会显示在日志里）。
+  const bundledQr = path.join(destDir, 'node_modules', 'qrcode-terminal');
+  if (!existsSync(bundledQr)) {
+    const qrSrc = path.join(profileDir('qqbot'), 'node_modules', 'qrcode-terminal');
+    const qrDest = path.join(dir, 'node_modules', 'qrcode-terminal');
+    if (existsSync(qrSrc)) {
+      rmSync(qrDest, { recursive: true, force: true });
+      copyLocalPlugin(qrSrc, qrDest);
+    } else {
+      report({ type: 'log', message: '未找到 qrcode-terminal，扫码二维码将以链接形式显示。' });
+    }
   }
 
   // 写 profile package.json（bundle 声明 + 依赖）。
@@ -537,12 +582,13 @@ async function installChannel(managedDirs, detection, channel, report) {
   const dsh = await ensureDsh(managedDirs, detection, report);
   const pnpm = await ensurePnpm(managedDirs, { nodePath: dsh.nodePath, npmCliPath: dsh.npmCliPath }, report);
 
-  report({ type: 'log', message: `执行：dsh plugin --profile ${channel.profile} add ${channel.package}` });
+  report({ type: 'log', message: `执行：dsh plugin --profile ${channel.profile} add ${channel.package} --dangerously-allow-all-builds` });
   const code = await runWithOutput(dsh.nodePath, [
     dsh.dsh.binPath,
     'plugin',
     '--profile', channel.profile,
     'add', channel.package,
+    '--dangerously-allow-all-builds',
   ], {
     cwd: os.homedir(),
     env: envWithNodePath(dsh.nodePath, { PATH: pnpm.pathEnv, npm_config_dangerously_allow_all_builds: 'true' }),
@@ -1438,6 +1484,7 @@ module.exports = {
   removeChannelAccount,
   ensureDsh,
   ensurePnpm,
+  installProfileDeps,
   runWithOutput,
   dshHome,
   profileDir,
