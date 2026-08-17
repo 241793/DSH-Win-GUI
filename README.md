@@ -2,6 +2,8 @@
 
 基于 Electron 的 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) Windows 桌面启动器。它不重新实现 Harness，而是把官方 `dsh web` 服务包装成一个**双击即开、缺组件自动下载安装**的桌面程序，并在此基础上提供互联渠道、插件市场、插件安装等增强功能。
 
+目的：初心是为想体验Harness的佬友提供安装便捷操作，无需输入命令，打开自动检测是否安装必要依赖，一个exe程序即可可视化安装以及dsh基础便捷操作，新增插件可在设置直接导入，无需命令
+
 > 官方 CLI：`@deepseek-ai/dsh`（`dsh` 命令）。本项目是官方预留 Electron 壳形态的实用实现：Electron 主进程负责检测、安装、拉起后端，窗口加载官方 Web UI。
 
 ---
