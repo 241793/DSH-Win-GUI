@@ -1799,7 +1799,7 @@ window.__ModuleLoader__.load({
         setLogOpen(true);
         appendLog("===== 修复 " + item.path + " =====");
         api.run(item.path).then(function (result) {
-          appendLog("修复完成：" + (result.ok ? "成功" : "失败") + (result.dropped ? "，删除 " + result.dropped + " 行重复记录" : "") + (result.events !== undefined ? "，事件数 " + result.events : ""));
+          appendLog("修复完成：" + (result.ok ? "成功" : "失败") + (result.dropped ? "，删除 " + result.dropped + " 行重复记录" : "") + (result.droppedInbox ? "，删除 " + result.droppedInbox + " 条无效 inbox 事件" : "") + (result.shapeFixed ? "，修复 " + result.shapeFixed + " 条消息结构" : "") + (result.events !== undefined ? "，事件数 " + result.events : ""));
           if (result.errors && result.errors.length) appendLog("[错误] " + JSON.stringify(result.errors));
           scan();
         }).catch(function (error) {
@@ -1817,7 +1817,7 @@ window.__ModuleLoader__.load({
             onClick: scan,
           }, scanning ? "扫描中…" : "扫描损坏会话")),
         create("p", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: 13, lineHeight: 1.6 } },
-          "扫描 ~/.dsh/sessions 下所有 session.jsonl.zstd，检测历史记录中的 seq 重复/乱序。修复前会自动备份原文件。"),
+          "扫描 ~/.dsh/sessions 下所有 session.jsonl.zstd，检测历史记录中的 seq 重复/乱序、消息结构损坏和 inbox 投影损坏。修复前会自动备份原文件。"),
         items.length === 0
           ? create("p", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: 13 } }, scanning ? "正在扫描…" : "没有发现损坏的会话。")
           : create("div", null,
