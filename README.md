@@ -1,6 +1,6 @@
 # DeepSeek Harness 桌面端
 
-基于 Electron 的 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) Windows 桌面启动器。它不重新实现 Harness，而是把官方 `dsh web` 服务包装成一个**双击即开、缺组件自动下载安装**的桌面程序，并在此基础上提供互联渠道、插件市场、插件安装等增强功能。
+基于 Electron 的 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) Windows 桌面启动器。它不重新实现 Harness，而是把官方 `dsh web` 服务包装成一个**双击即开、缺组件自动下载安装**的桌面程序，并在此基础上提供互联渠道、插件市场、插件安装、技能管理、技能市场、定时任务、会话修复等增强功能。
 
 > 官方 CLI：`@deepseek-ai/dsh`（`dsh` 命令）。本项目是官方预留 Electron 壳形态的实用实现：Electron 主进程负责检测、安装、拉起后端，窗口加载官方 Web UI。
 
@@ -48,9 +48,38 @@
 - **链接安装**：输入插件链接（一般 GitHub 地址）→「查看」弹出插件信息 →「下载安装」。GitHub 仓库通过官方 tarball 下载到本地再安装，**不依赖 git**。
 - **本界面安装列表**：展示通过该 Tab 安装的插件，支持查看信息与删除。
 
-### 1.5 打包分发
+### 1.5 技能管理（Harness Web UI → 设置 → 技能）
 
-- electron-builder 输出 NSIS 安装包（可选安装目录、创建桌面/开始菜单快捷方式）。
+- **已安装**：列出 dsh 当前可发现的 skill（名称、描述、来源），用户 `~/.dsh/skills` 下的 skill 支持删除。
+- **安装**：
+  - 本地导入：选择包含 `SKILL.md` 的文件夹或单个 `.md` 文件，复制到 `~/.dsh/skills`。
+  - 从链接安装：输入 GitHub 仓库链接，自动下载 tarball 并扫描 `SKILL.md` / `skills/` 目录，安装到 `~/.dsh/skills`。
+
+### 1.6 技能市场（Harness Web UI → 设置 → 技能 → 技能市场）
+
+- 支持自定义市场源，例如：`https://github.com/anbeime/skill/tree/main/skills`。
+- 自动拉取该目录下的技能列表，显示名称、描述、适用场景、附加信息。
+- 支持「查看」详情和「下载」安装到 `~/.dsh/skills`。
+- 市场源保存在 `~/.dsh/skill-market-source.json`。
+
+### 1.7 定时任务（Harness Web UI → 设置 → 定时任务）
+
+- 支持新建 / 编辑 / 删除 / 启用 / 禁用 / 立即运行任务。
+- 任务配置：名称、执行频率（间隔 / 每天 / 每周 / 单次）、提示词、模型、权限模式、指定技能、前置脚本。
+- 使用 dsh 官方 headless 模式执行：`dsh --profile headless --patch <临时配置> "提示词"`。
+- 运行记录与完整日志保存在 `~/.dsh/scheduled-task-runs.jsonl`，支持查看和删除。
+- 应用启动时会自动向 `~/.dsh/skills/scheduled-task-management` 写入说明 skill，让 dsh 知道桌面端具备定时任务功能。
+
+### 1.8 会话修复（Harness Web UI → 设置 → 会话修复）
+
+- 自动扫描 `~/.dsh/sessions` 下所有 `session.jsonl.zstd`。
+- 检测历史记录中的 seq 重复 / 乱序问题。
+- 一键修复：自动备份、删除重复/乱序记录、重新压缩并校验。
+- 修复依赖本机 `python` 与 `zstandard` 模块；应用启动时会把修复脚本释放到 userData 目录。
+
+### 1.9 打包分发
+
+- 提供 NSIS 安装包与免安装版两种产物。
 - 应用图标、窗口图标、安装包图标、快捷方式图标统一使用 `assets/icon.ico` / `assets/icon.png`。
 
 ---
@@ -70,6 +99,9 @@
 │  channels.js       互联渠道管理（QQBot / WxClaw）          │
 │  marketplace.js    插件市场（dshplugin.store 抓取/解析）    │
 │  plugin-install.js 插件安装 Tab（本地导入/链接安装/历史）    │
+│  skills.js         技能列表/导入/链接安装/技能市场           │
+│  scheduler.js      定时任务存储/调度/headless 执行/日志      │
+│  session-repair.js 会话历史扫描与修复（内嵌 Python 脚本）    │
 │  util.js           版本比较、命令执行、下载、解压等工具      │
 └──────┬──────────────────────────┬──────────────┬─────────┘
        │ IPC (contextBridge)     │ spawn        │ spawn
@@ -79,8 +111,8 @@
   启动/检测/安装页              ▲
        │                      │
        │   dsh 设置页插件（src/connect-plugin，复制为 dsh-connect-center）
-       │   注册：设置 → 互联 / 插件市场 / 插件 → 插件安装 Tab
-       │   window.desktopAPI.connect / market / pluginInstall
+       │   注册：设置 → 互联 / 插件市场 / 插件安装 / 技能 / 定时任务 / 会话修复
+       │   window.desktopAPI.connect / market / pluginInstall / skills / scheduler / repair
        └── 检测通过后 win.loadURL(http://127.0.0.1:<端口>)
 ```
 
@@ -129,6 +161,24 @@
     `dsh plugin add <本地.tgz>`，避免依赖 git；
   - 历史记录：`~/.dsh/plugin-install-history.json`，可查看信息、删除（`dsh plugin remove`）。
 - 安装 / 卸载完成后，主进程自动重启 dsh web 后端并刷新窗口，使插件立即生效。
+
+### 2.6 技能 / 技能市场原理
+
+- `skills.js` 扫描标准 skill 根目录（`~/.dsh/skills`、`~/.agents/skills`、`~/.dsh/.system/skills`）。
+- 技能市场通过 GitHub API 读取仓库目录树，识别 `skills/` 下的 `SKILL.md` / `.md`，拉取 frontmatter 展示，并下载到 `~/.dsh/skills`。
+
+### 2.7 定时任务原理
+
+- `scheduler.js` 每 30 秒检查一次任务是否到期。
+- 到点后调用 dsh headless：`dsh --profile headless --patch <临时配置> "提示词"`。
+- 临时 patch 可覆盖模型、权限等配置；前置脚本输出会附加到提示词。
+- 运行记录写入 `~/.dsh/scheduled-task-runs.jsonl`。
+
+### 2.8 会话修复原理
+
+- `session-repair.js` 内嵌一个 Python 修复脚本。
+- 脚本解压 `.zstd` 会话日志，按事件 `seq` 校验连续性，删除重复/乱序记录，必要时对尾部 seq 重编号，再重新压缩为 header + body 两个 zstd frame。
+- 修复前自动备份原文件。
 
 ---
 
@@ -198,6 +248,22 @@ npm run dist
 - **插件市场**：`设置 → 插件市场`，搜索 / 分类 / 安装 / 卸载 / 打开 GitHub。
 - **插件安装**：`设置 → 插件 → 插件安装`，本地导入或粘贴 GitHub 链接安装。
 
+### 3.6 使用技能 / 技能市场
+
+- **技能**：`设置 → 技能`，查看已安装技能；「安装」页支持本地导入或 GitHub 链接安装。
+- **技能市场**：`设置 → 技能 → 技能市场`，输入市场源（如 `https://github.com/anbeime/skill/tree/main/skills`），保存后浏览并下载技能。
+
+### 3.7 使用定时任务
+
+- 进入 `设置 → 定时任务`，新建任务并配置频率、提示词、模型、权限、技能、前置脚本。
+- 任务到点后自动执行；也可点「立即运行」手动触发。
+- 运行记录和完整日志可在「运行记录」中查看或删除。
+
+### 3.8 使用会话修复
+
+- 进入 `设置 → 会话修复`，点「扫描损坏会话」。
+- 出现损坏列表后点「修复」，应用会自动备份并修复历史记录。
+
 ---
 
 ## 4. 数据存放位置
@@ -206,6 +272,11 @@ npm run dist
 - **应用自管运行时**（检测不到全局 Node/dsh 时创建）：`<Electron userData>\runtime\`。
 - **插件安装 Tab 的 tarball**：`~/.dsh\plugin-tarballs\`。
 - **插件安装 Tab 的历史记录**：`~/.dsh\plugin-install-history.json`。
+- **技能**：`~/.dsh\skills\`、`~/.agents\skills\`。
+- **技能市场源**：`~/.dsh\skill-market-source.json`。
+- **定时任务配置**：`~/.dsh\scheduled-tasks.json`。
+- **定时任务运行记录**：`~/.dsh\scheduled-task-runs.jsonl`。
+- **会话修复脚本**：`<Electron userData>\session-repair\session-repair.py`。
 - **外观等 UI 偏好**：浏览器 localStorage（Harness 页面内）。
 
 ---
@@ -224,6 +295,7 @@ npm run dist
 | 插件安装后不生效 | 未重启 dsh web / client-only 未写入口行 | 当前版本已自动重启并写入口行；如仍不生效发日志 |
 | WxClaw 收不到消息 | 未绑定 / token 失效 / 网络问题 | 在「账号」中删除后重新扫码；查看渠道日志 |
 | 快捷方式图标不显示自定义图标 | Windows 图标缓存 | 重启资源管理器或注销重登；安装包和 exe 已内嵌图标 |
+| 历史记录报错 corrupt session log: seq gap | 进程被强制结束导致日志重复/乱序 | 打开「设置 → 会话修复」一键修复；平时避免强杀 dsh/Electron |
 
 ---
 
@@ -256,18 +328,23 @@ harness/
    │  ├─ channels.js          # 互联渠道管理（QQBot/WxClaw/账号/切换/卸载）
    │  ├─ marketplace.js       # 插件市场抓取/解析/安装/卸载
    │  ├─ plugin-install.js    # 插件安装 Tab：本地导入/链接安装/历史
+   │  ├─ skills.js            # 技能列表/导入/链接安装/技能市场
+   │  ├─ scheduler.js         # 定时任务存储/调度/headless 执行/日志
+   │  ├─ session-repair.js    # 会话历史扫描与修复（内嵌 Python 脚本）
    │  └─ util.js              # 工具函数
    ├─ connect-plugin/         # dsh 设置页插件（复制为 dsh-connect-center）
    │  ├─ package.json
    │  ├─ cordis.patch.yml
    │  └─ lib/
    │     ├─ index.js          # 主机端 no-op
-   │     └─ client.js         # 浏览器端：注册 互联 / 插件市场 / 插件安装 Tab
+   │     └─ client.js         # 浏览器端：注册 互联 / 插件市场 / 插件安装 / 技能 / 定时任务 / 会话修复
    ├─ preload/
-   │  └─ preload.js           # contextBridge：file: 全量 API；127.0.0.1 暴露 connect/market/pluginInstall
+   │  ├─ preload.js           # contextBridge：file: 全量 API；127.0.0.1 暴露 connect/market/pluginInstall/skills/scheduler/repair
+   │  └─ update-progress-preload.js  # DSH 更新进度窗口 preload
    └─ renderer/               # 启动页 UI（connect.html/connect.js 为历史遗留，当前菜单已不入口）
       ├─ index.html / renderer.js / styles.css
       ├─ cc-tui-progress.html / cc-tui-progress.js   # CC-TUI 安装进度窗口
+      ├─ update-progress.html / update-progress.js   # DSH 更新进度窗口
       ├─ connect.html / connect.js
 ```
 

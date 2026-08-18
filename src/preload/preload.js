@@ -29,6 +29,37 @@ const pluginInstallApi = {
   onOutput: (callback) => on('connect-output', callback),
 };
 
+const skillsApi = {
+  list: () => ipcRenderer.invoke('skills:list'),
+  importLocal: () => ipcRenderer.invoke('skills:import-local'),
+  inspect: (link) => ipcRenderer.invoke('skills:inspect', link),
+  install: (link) => ipcRenderer.invoke('skills:install', link),
+  remove: (name) => ipcRenderer.invoke('skills:remove', name),
+  getMarketSource: () => ipcRenderer.invoke('skills:market-source-get'),
+  setMarketSource: (link) => ipcRenderer.invoke('skills:market-source-set', link),
+  marketList: (link) => ipcRenderer.invoke('skills:market-list', link),
+  marketView: (link, name) => ipcRenderer.invoke('skills:market-view', link, name),
+  marketInstall: (link, name) => ipcRenderer.invoke('skills:market-install', link, name),
+  onOutput: (callback) => on('connect-output', callback),
+};
+
+const schedulerApi = {
+  list: () => ipcRenderer.invoke('scheduler:list'),
+  save: (task) => ipcRenderer.invoke('scheduler:save', task),
+  delete: (id) => ipcRenderer.invoke('scheduler:delete', id),
+  toggle: (id, enabled) => ipcRenderer.invoke('scheduler:toggle', id, enabled),
+  runs: () => ipcRenderer.invoke('scheduler:runs'),
+  runDetail: (id) => ipcRenderer.invoke('scheduler:run-detail', id),
+  runDelete: (id) => ipcRenderer.invoke('scheduler:run-delete', id),
+  runNow: (id) => ipcRenderer.invoke('scheduler:run-now', id),
+  onOutput: (callback) => on('connect-output', callback),
+};
+
+const repairApi = {
+  scan: () => ipcRenderer.invoke('repair:scan'),
+  run: (file) => ipcRenderer.invoke('repair:run', file),
+};
+
 const ccTuiApi = {
   open: () => ipcRenderer.invoke('cc-tui:open'),
 };
@@ -61,6 +92,9 @@ if (isFile) {
     connect: connectApi,
     market: marketApi,
     pluginInstall: pluginInstallApi,
+    skills: skillsApi,
+    scheduler: schedulerApi,
+    repair: repairApi,
     ccTui: ccTuiApi,
     onInstallProgress: (callback) => on('install-progress', callback),
     onBackendProgress: (callback) => on('backend-progress', callback),
@@ -76,6 +110,9 @@ if (isFile) {
     connect: connectApi,
     market: marketApi,
     pluginInstall: pluginInstallApi,
+    skills: skillsApi,
+    scheduler: schedulerApi,
+    repair: repairApi,
     openExternal: (url) => ipcRenderer.invoke('open-external', url),
   });
 }

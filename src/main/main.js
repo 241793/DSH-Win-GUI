@@ -13,6 +13,9 @@ const backend = require('./backend');
 const channels = require('./channels');
 const marketplace = require('./marketplace');
 const pluginInstall = require('./plugin-install');
+const skills = require('./skills');
+const scheduler = require('./scheduler');
+const sessionRepair = require('./session-repair');
 
 let mainWindow = null;
 let backendChild = null;
@@ -45,6 +48,7 @@ if (!gotSingleInstanceLock) {
     app.setAppUserModelId('com.deepseek.harness.desktop');
     createWindow();
     registerIpc();
+    scheduler.startScheduler(managedDirs);
   });
 }
 
@@ -1013,6 +1017,115 @@ function registerIpc() {
     return result;
   });
 
+  ipcMain.handle('skills:list', () => {
+    return skills.listSkills();
+  });
+
+  ipcMain.handle('skills:import-local', async () => {
+    return skills.importLocalSkill((payload) => {
+      sendToConnect('skills', payload);
+    });
+  });
+
+  ipcMain.handle('skills:inspect', async (_event, link) => {
+    if (typeof link !== 'string' || !link.trim()) throw new Error('链接无效');
+    return skills.inspectSkillLink(link.trim());
+  });
+
+  ipcMain.handle('skills:install', async (_event, link) => {
+    if (typeof link !== 'string' || !link.trim()) throw new Error('链接无效');
+    return skills.installSkillLink(link.trim(), (payload) => {
+      sendToConnect('skills', payload);
+    });
+  });
+
+  ipcMain.handle('skills:remove', async (_event, name) => {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('名称无效');
+    return skills.removeSkill(name.trim(), (payload) => {
+      sendToConnect('skills', payload);
+    });
+  });
+
+  ipcMain.handle('skills:market-source-get', () => {
+    return skills.getMarketSource();
+  });
+
+  ipcMain.handle('skills:market-source-set', (_event, link) => {
+    if (typeof link !== 'string' || !link.trim()) throw new Error('链接无效');
+    return skills.setMarketSource(link.trim());
+  });
+
+  ipcMain.handle('skills:market-list', async (_event, link) => {
+    const source = typeof link === 'string' && link.trim() ? link.trim() : skills.getMarketSource();
+    return skills.listMarketSkills(source);
+  });
+
+  ipcMain.handle('skills:market-view', async (_event, link, name) => {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('名称无效');
+    const source = typeof link === 'string' && link.trim() ? link.trim() : skills.getMarketSource();
+    return skills.viewMarketSkill(source, name.trim());
+  });
+
+  ipcMain.handle('skills:market-install', async (_event, link, name) => {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('名称无效');
+    const source = typeof link === 'string' && link.trim() ? link.trim() : skills.getMarketSource();
+    return skills.installMarketSkill(source, name.trim(), (payload) => {
+      sendToConnect('skills', payload);
+    });
+  });
+
+  ipcMain.handle('scheduler:list', () => {
+    return scheduler.listTasks();
+  });
+
+  ipcMain.handle('scheduler:save', (_event, input) => {
+    if (!input || typeof input !== 'object') throw new Error('任务数据无效');
+    return scheduler.saveTask(input);
+  });
+
+  ipcMain.handle('scheduler:delete', (_event, id) => {
+    if (typeof id !== 'string' || !id.trim()) throw new Error('任务 ID 无效');
+    return scheduler.deleteTask(id.trim());
+  });
+
+  ipcMain.handle('scheduler:toggle', (_event, id, enabled) => {
+    if (typeof id !== 'string' || !id.trim()) throw new Error('任务 ID 无效');
+    return scheduler.toggleTask(id.trim(), Boolean(enabled));
+  });
+
+  ipcMain.handle('scheduler:runs', () => {
+    return scheduler.listRuns();
+  });
+
+  ipcMain.handle('scheduler:run-detail', (_event, id) => {
+    if (typeof id !== 'string' || !id.trim()) throw new Error('运行 ID 无效');
+    return scheduler.getRunDetail(id.trim());
+  });
+
+  ipcMain.handle('scheduler:run-delete', (_event, id) => {
+    if (typeof id !== 'string' || !id.trim()) throw new Error('运行 ID 无效');
+    return scheduler.deleteRun(id.trim());
+  });
+
+  ipcMain.handle('scheduler:run-now', async (_event, id) => {
+    if (typeof id !== 'string' || !id.trim()) throw new Error('任务 ID 无效');
+    const task = scheduler.listTasks().find((item) => item.id === id.trim());
+    if (!task) throw new Error('任务不存在');
+    await scheduler.runTask(task, (payload) => {
+      sendToConnect('scheduler', payload);
+    });
+    return { ok: true, runs: scheduler.listRuns() };
+  });
+
+  ipcMain.handle('repair:scan', async () => {
+    return sessionRepair.scanSessions();
+  });
+
+  ipcMain.handle('repair:run', async (_event, file) => {
+    if (typeof file !== 'string' || !file.trim()) throw new Error('会话文件无效');
+    return sessionRepair.repairSession(file.trim());
+  });
+
   ipcMain.handle('connect:get-accounts', (_event, channelId) => {
     return channels.getChannelAccounts(channelId);
   });
@@ -1055,6 +1168,7 @@ function sendToConnect(channelId, payload) {
 app.on('before-quit', () => {
   backend.stopBackend(backendChild);
   backendChild = null;
+  scheduler.stopScheduler();
   channels.stopAllChannels();
 });
 

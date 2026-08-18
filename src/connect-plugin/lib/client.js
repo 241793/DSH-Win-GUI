@@ -53,7 +53,16 @@ window.__ModuleLoader__.load({
       ".dsh-install-item{display:flex;align-items:center;gap:10px;border:1px solid var(--dsw-alias-border);border-radius:10px;padding:10px 12px;background:var(--dsw-alias-bg-layer-1)}",
       ".dsh-install-item .info{flex:1;min-width:0}",
       ".dsh-install-item .name{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}",
-      ".dsh-install-item .meta{font-size:12px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
+      ".dsh-install-item .meta{font-size:12px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".dsh-skill-tabs{display:flex;gap:8px;margin-bottom:12px}",
+      ".dsh-skill-tab{border:1px solid var(--dsw-alias-border);border-radius:999px;padding:6px 14px;font-size:13px;color:var(--dsw-alias-label-secondary);background:transparent;cursor:pointer}",
+      ".dsh-skill-tab.active{border-color:var(--dsw-alias-accent,#4d6bfe);color:var(--dsw-alias-accent,#4d6bfe)}",
+      ".dsh-skill-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}",
+      ".dsh-skill-card{display:flex;flex-direction:column;gap:8px;border:1px solid var(--dsw-alias-border);border-radius:14px;padding:14px;background:var(--dsw-alias-bg-layer-2)}",
+      ".dsh-skill-name{margin:0;font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}",
+      ".dsh-skill-desc{margin:0;font-size:13px;line-height:1.6;color:var(--dsw-alias-label-secondary)}",
+      ".dsh-skill-meta{margin:0;font-size:12px;color:var(--dsw-alias-label-secondary)}",
+      ".dsh-skill-actions{display:flex;gap:8px;margin-top:auto;flex-wrap:wrap}"
     ].join("\n");
 
     if (typeof document !== "undefined" && !document.querySelector('style[data-plugin-css="dsh-connect-center"]')) {
@@ -1059,6 +1068,779 @@ window.__ModuleLoader__.load({
         }, create("pre", { className: "dsh-connect-log" }, (logLines.join("\n") || "暂无日志") + "\n")));
     }
 
+    function SkillSection() {
+      var create = react.createElement;
+      var useState = react.useState;
+      var useEffect = react.useEffect;
+
+      var tabState = useState("installed");
+      var tab = tabState[0];
+      var setTab = tabState[1];
+      var itemsState = useState([]);
+      var items = itemsState[0];
+      var setItems = itemsState[1];
+      var linkState = useState("");
+      var link = linkState[0];
+      var setLink = linkState[1];
+      var infoState = useState(null);
+      var info = infoState[0];
+      var setInfo = infoState[1];
+      var logOpenState = useState(false);
+      var logOpen = logOpenState[0];
+      var setLogOpen = logOpenState[1];
+      var logState = useState([]);
+      var logLines = logState[0];
+      var setLogLines = logState[1];
+      var loadingState = useState(false);
+      var loading = loadingState[0];
+      var setLoading = loadingState[1];
+      var marketSourceState = useState("");
+      var marketSource = marketSourceState[0];
+      var setMarketSource = marketSourceState[1];
+      var marketSkillsState = useState([]);
+      var marketSkills = marketSkillsState[0];
+      var setMarketSkills = marketSkillsState[1];
+      var marketLoadingState = useState(false);
+      var marketLoading = marketLoadingState[0];
+      var setMarketLoading = marketLoadingState[1];
+
+      var api = (typeof window !== "undefined" && window.desktopAPI && window.desktopAPI.skills) ? window.desktopAPI.skills : null;
+
+      var appendLog = function (text) {
+        setLogLines(function (prev) { return prev.concat([text]).slice(-120); });
+      };
+
+      var refresh = function () {
+        if (!api) return;
+        setLoading(true);
+        api.list().then(function (list) {
+          setItems(list || []);
+        }).catch(function (error) {
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        }).finally(function () {
+          setLoading(false);
+        });
+      };
+
+      useEffect(function () {
+        refresh();
+        if (api && api.getMarketSource) {
+          api.getMarketSource().then(function (source) {
+            setMarketSource(source || "");
+            loadMarket(source || "");
+          }).catch(function () { /* 忽略 */ });
+        }
+        if (api && api.onOutput) {
+          var off = api.onOutput(function (payload) {
+            if (!payload || payload.channelId !== "skills") return;
+            if (payload.type === "log") appendLog(payload.message || "");
+            else if (payload.type === "output") appendLog(payload.text || "");
+            else if (payload.type === "progress") appendLog("[进度] " + (payload.stage || "") + (typeof payload.percent === "number" && payload.percent >= 0 ? " " + payload.percent + "%" : ""));
+          });
+          return function () { if (off) off(); };
+        }
+        return undefined;
+      }, []);
+
+      var importLocal = function () {
+        if (!api) return;
+        setLogOpen(true);
+        appendLog("===== 本地导入 skill =====");
+        api.importLocal().then(function (list) {
+          setItems(list || []);
+          appendLog("本地 skill 导入完成。");
+        }).catch(function (error) {
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      var inspect = function () {
+        if (!api || !link.trim()) return;
+        setLogOpen(true);
+        appendLog("===== 查看 skill 链接 =====");
+        api.inspect(link.trim()).then(function (data) {
+          setInfo(data);
+          appendLog("已获取 skill 信息：" + (data.name || ""));
+        }).catch(function (error) {
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      var install = function () {
+        if (!api || !link.trim()) return;
+        setLogOpen(true);
+        appendLog("===== 下载安装 skill =====");
+        api.install(link.trim()).then(function (list) {
+          setItems(list || []);
+          appendLog("skill 安装完成。");
+        }).catch(function (error) {
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      var remove = function (item) {
+        if (!api || !item.removable) return;
+        setLogOpen(true);
+        appendLog("===== 删除 skill " + item.name + " =====");
+        api.remove(item.name).then(function (list) {
+          setItems(list || []);
+          appendLog("已删除 " + item.name);
+        }).catch(function (error) {
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      var loadMarket = function (source) {
+        if (!api) return;
+        var target = source || marketSource;
+        if (!target.trim()) return;
+        setMarketLoading(true);
+        appendLog("===== 加载技能市场 =====");
+        appendLog(target.trim());
+        api.marketList(target.trim()).then(function (list) {
+          setMarketSkills(list || []);
+          appendLog("获取到 " + (list || []).length + " 个技能。");
+        }).catch(function (error) {
+          setLogOpen(true);
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        }).finally(function () {
+          setMarketLoading(false);
+        });
+      };
+
+      var saveMarketSource = function () {
+        if (!api || !marketSource.trim()) return;
+        setLogOpen(true);
+        appendLog("===== 保存市场源 =====");
+        api.setMarketSource(marketSource.trim()).then(function () {
+          appendLog("市场源已保存：" + marketSource.trim());
+          loadMarket(marketSource.trim());
+        }).catch(function (error) {
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      var viewMarket = function (item) {
+        if (!api) return;
+        setLogOpen(true);
+        appendLog("===== 查看市场 skill " + item.name + " =====");
+        api.marketView(marketSource, item.name).then(function (data) {
+          setInfo(data);
+          appendLog("已获取详情。");
+        }).catch(function (error) {
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      var installMarket = function (item) {
+        if (!api) return;
+        setLogOpen(true);
+        appendLog("===== 下载市场 skill " + item.name + " =====");
+        api.marketInstall(marketSource, item.name).then(function (list) {
+          setItems(list || []);
+          appendLog("市场 skill 已安装。");
+        }).catch(function (error) {
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      return create("div", { className: "dsh-install" },
+        create("div", { className: "dsh-skill-tabs" },
+          create("button", {
+            className: "dsh-skill-tab" + (tab === "installed" ? " active" : ""),
+            onClick: function () { setTab("installed"); },
+          }, "已安装"),
+          create("button", {
+            className: "dsh-skill-tab" + (tab === "install" ? " active" : ""),
+            onClick: function () { setTab("install"); },
+          }, "安装"),
+          create("button", {
+            className: "dsh-skill-tab" + (tab === "market" ? " active" : ""),
+            onClick: function () { setTab("market"); },
+          }, "技能市场")),
+        tab === "installed"
+          ? create("div", { className: "dsh-skill-grid" },
+              items.length === 0
+                ? create("p", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: 13 } }, loading ? "正在扫描 skill…" : "暂未发现 skill。可在「安装」标签页导入。")
+                : items.map(function (item) {
+                    return create("div", { className: "dsh-skill-card", key: item.name + item.source + item.path },
+                      create("p", { className: "dsh-skill-name" }, item.name),
+                      create("p", { className: "dsh-skill-desc" }, item.description || "（无描述）"),
+                      create("p", { className: "dsh-skill-meta" }, "来源：" + item.source),
+                      create("div", { className: "dsh-skill-actions" },
+                        create(primitives.Button, {
+                          variant: "ghost",
+                          size: "sm",
+                          onClick: function () {
+                            setInfo({ name: item.name, description: item.description || "", source: item.path, owner: "", repo: "" });
+                            setLogOpen(true);
+                          },
+                        }, "查看信息"),
+                        item.removable
+                          ? create(primitives.Button, {
+                              variant: "outline",
+                              size: "sm",
+                              onClick: function () { remove(item); },
+                            }, "删除")
+                          : null));
+                  }))
+          : tab === "install"
+            ? create("div", null,
+                create("div", { className: "dsh-install-card" },
+                  create("h3", null, "本地导入"),
+                  create("p", null, "选择包含 SKILL.md 的文件夹，或单个 .md skill 文件，安装到 ~/.dsh/skills。"),
+                  create("div", { className: "dsh-install-row" },
+                    create(primitives.Button, {
+                      variant: "primary",
+                      size: "sm",
+                      icon: create(primitives.IconFolderOpenOutline16),
+                      onClick: importLocal,
+                    }, "选择 skill"))),
+                create("div", { className: "dsh-install-card" },
+                  create("h3", null, "从链接安装"),
+                  create("p", null, "输入 GitHub 仓库链接（仓库根目录包含 SKILL.md，或包含 skills/ 目录）。"),
+                  create("div", { className: "dsh-install-row" },
+                    create("input", {
+                      placeholder: "https://github.com/owner/repo",
+                      value: link,
+                      onChange: function (event) { setLink(event.target.value); },
+                    }),
+                    create(primitives.Button, {
+                      variant: "outline",
+                      size: "sm",
+                      disabled: !link.trim(),
+                      onClick: inspect,
+                    }, "查看"),
+                    create(primitives.Button, {
+                      variant: "primary",
+                      size: "sm",
+                      disabled: !link.trim(),
+                      onClick: install,
+                    }, "下载安装"))))
+            : create("div", { className: "dsh-market" },
+                create("div", { className: "dsh-market-bar" },
+                  create("input", {
+                    placeholder: "https://github.com/owner/repo/tree/main/skills",
+                    value: marketSource,
+                    onChange: function (event) { setMarketSource(event.target.value); },
+                  }),
+                  create(primitives.Button, {
+                    variant: "primary",
+                    size: "sm",
+                    disabled: !marketSource.trim(),
+                    onClick: saveMarketSource,
+                  }, "保存并刷新"),
+                  create(primitives.Button, {
+                    variant: "outline",
+                    size: "sm",
+                    disabled: marketLoading,
+                    onClick: function () { loadMarket(); },
+                  }, marketLoading ? "加载中…" : "刷新")),
+                marketSkills.length === 0
+                  ? create("p", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: 13 } }, marketLoading ? "正在从市场源加载…" : "市场源暂无 skill，或加载失败。")
+                  : create("div", { className: "dsh-skill-grid" },
+                      marketSkills.map(function (item) {
+                        return create("div", { className: "dsh-skill-card", key: item.name },
+                          create("p", { className: "dsh-skill-name" }, item.name),
+                          create("p", { className: "dsh-skill-desc" }, item.description || "（无描述）"),
+                          item.whenToUse ? create("p", { className: "dsh-skill-meta" }, "适用场景：" + item.whenToUse) : null,
+                          item.metadata ? create("p", { className: "dsh-skill-meta" }, "附加信息：" + item.metadata) : null,
+                          create("div", { className: "dsh-skill-actions" },
+                            create(primitives.Button, {
+                              variant: "ghost",
+                              size: "sm",
+                              onClick: function () { viewMarket(item); },
+                            }, "查看"),
+                            create(primitives.Button, {
+                              variant: "primary",
+                              size: "sm",
+                              onClick: function () { installMarket(item); },
+                            }, "下载")));
+                      }))),
+        create(primitives.Modal, {
+          open: Boolean(info),
+          onClose: function () { setInfo(null); },
+          title: "skill 信息",
+          description: info ? (info.owner ? info.owner + "/" + info.repo : "") : "",
+          footer: create("div", { style: { display: "flex", gap: 8 } },
+            info && info.source && /^https?:/i.test(info.source)
+              ? create(primitives.Button, {
+                  variant: "outline",
+                  size: "sm",
+                  onClick: function () {
+                    if (window.desktopAPI && window.desktopAPI.openExternal) window.desktopAPI.openExternal(info.source);
+                  },
+                }, "打开源码")
+              : null,
+            create(primitives.Button, {
+              variant: "ghost",
+              size: "sm",
+              onClick: function () { setInfo(null); },
+            }, "关闭")),
+        }, create("div", null,
+          create("p", { style: { margin: "0 0 8px", fontSize: 14, color: "var(--dsw-alias-label-primary)" } }, info ? info.name : ""),
+          create("p", { style: { margin: 0, fontSize: 13, color: "var(--dsw-alias-label-secondary)", lineHeight: 1.6, whiteSpace: "pre-wrap" } }, info ? info.description || "" : ""))),
+        create(primitives.Modal, {
+          open: logOpen,
+          onClose: function () { setLogOpen(false); },
+          title: "Skill · 操作日志",
+          description: "本地导入 / 链接安装 / 删除 的实时日志。",
+          footer: create(primitives.Button, {
+            variant: "outline",
+            size: "sm",
+            onClick: function () { setLogOpen(false); },
+          }, "关闭"),
+        }, create("pre", { className: "dsh-connect-log" }, (logLines.join("\n") || "暂无日志") + "\n")));
+    }
+
+    function SchedulerSection() {
+      var create = react.createElement;
+      var useState = react.useState;
+      var useEffect = react.useEffect;
+
+      var tasksState = useState([]);
+      var tasks = tasksState[0];
+      var setTasks = tasksState[1];
+      var runsState = useState([]);
+      var runs = runsState[0];
+      var setRuns = runsState[1];
+      var formOpenState = useState(false);
+      var formOpen = formOpenState[0];
+      var setFormOpen = formOpenState[1];
+      var editingState = useState(null);
+      var editing = editingState[0];
+      var setEditing = editingState[1];
+      var runDetailState = useState(null);
+      var runDetail = runDetailState[0];
+      var setRunDetail = runDetailState[1];
+      var logOpenState = useState(false);
+      var logOpen = logOpenState[0];
+      var setLogOpen = logOpenState[1];
+      var logState = useState([]);
+      var logLines = logState[0];
+      var setLogLines = logState[1];
+
+      var api = (typeof window !== "undefined" && window.desktopAPI && window.desktopAPI.scheduler) ? window.desktopAPI.scheduler : null;
+
+      var appendLog = function (text) {
+        setLogLines(function (prev) { return prev.concat([text]).slice(-120); });
+      };
+
+      var refreshTasks = function () {
+        if (!api) return;
+        api.list().then(function (list) { setTasks(list || []); }).catch(function (error) {
+          setLogOpen(true);
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      var refreshRuns = function () {
+        if (!api) return;
+        api.runs().then(function (list) { setRuns(list || []); }).catch(function () {});
+      };
+
+      useEffect(function () {
+        refreshTasks();
+        refreshRuns();
+        if (api && api.onOutput) {
+          var off = api.onOutput(function (payload) {
+            if (!payload || payload.channelId !== "scheduler") return;
+            setLogOpen(true);
+            if (payload.type === "log") appendLog(payload.message || "");
+            else if (payload.type === "output") appendLog(payload.text || "");
+            else if (payload.type === "progress") appendLog("[进度] " + (payload.stage || "") + (typeof payload.percent === "number" && payload.percent >= 0 ? " " + payload.percent + "%" : ""));
+          });
+          return function () { if (off) off(); };
+        }
+        return undefined;
+      }, []);
+
+      var scheduleSummary = function (task) {
+        var s = task.schedule || {};
+        if (s.type === "interval") return "每 " + (s.intervalMinutes || 60) + " 分钟";
+        if (s.type === "daily") return "每天 " + (s.time || "08:00");
+        if (s.type === "weekly") {
+          var days = ["日", "一", "二", "三", "四", "五", "六"];
+          return "每周" + (days[Number(s.day)] || "?") + " " + (s.time || "08:00");
+        }
+        if (s.type === "once") return "单次 " + (s.runAt ? new Date(s.runAt).toLocaleString() : "");
+        return "未设置";
+      };
+
+      var openNew = function () {
+        setEditing({
+          name: "",
+          enabled: true,
+          schedule: { type: "interval", intervalMinutes: 60, time: "08:00", day: 1, runAt: "" },
+          prompt: "",
+          model: "",
+          permissionMode: "workspace-write",
+          skill: "",
+          script: "",
+        });
+        setFormOpen(true);
+      };
+
+      var openEdit = function (task) {
+        setEditing(JSON.parse(JSON.stringify(task)));
+        setFormOpen(true);
+      };
+
+      var save = function () {
+        if (!api || !editing) return;
+        if (!editing.name.trim()) {
+          setLogOpen(true);
+          appendLog("[错误] 任务名称不能为空");
+          return;
+        }
+        api.save(editing).then(function (list) {
+          setTasks(list || []);
+          setFormOpen(false);
+          setEditing(null);
+        }).catch(function (error) {
+          setLogOpen(true);
+          appendLog("[错误] 保存失败：" + (error && error.message ? error.message : error));
+        });
+      };
+
+      var toggle = function (task) {
+        if (!api) return;
+        api.toggle(task.id, !task.enabled).then(function (list) { setTasks(list || []); }).catch(function (error) {
+          setLogOpen(true);
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      var remove = function (task) {
+        if (!api || !window.confirm) return;
+        if (!window.confirm("确定删除定时任务「" + task.name + "」？")) return;
+        api.delete(task.id).then(function (list) { setTasks(list || []); }).catch(function (error) {
+          setLogOpen(true);
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      var runNow = function (task) {
+        if (!api) return;
+        setLogOpen(true);
+        appendLog("===== 立即运行 " + task.name + " =====");
+        api.runNow(task.id).then(function (result) {
+          appendLog("任务已执行完成，状态见运行记录。");
+          refreshTasks();
+          refreshRuns();
+        }).catch(function (error) {
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      var openRunDetail = function (run) {
+        if (!api) return;
+        api.runDetail(run.id).then(function (detail) {
+          setRunDetail(detail || run);
+        }).catch(function (error) {
+          setLogOpen(true);
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      var deleteRun = function (run) {
+        if (!api || !window.confirm) return;
+        if (!window.confirm("确定删除这条运行记录？")) return;
+        api.runDelete(run.id).then(function (list) {
+          setRuns(list || []);
+        }).catch(function (error) {
+          setLogOpen(true);
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      var formSchedule = editing && editing.schedule ? editing.schedule : {};
+      var setForm = function (patch) {
+        setEditing(function (prev) { return prev ? { ...prev, ...patch } : prev; });
+      };
+      var setSchedule = function (patch) {
+        setEditing(function (prev) {
+          if (!prev) return prev;
+          return { ...prev, schedule: { ...(prev.schedule || {}), ...patch } };
+        });
+      };
+
+      var scheduleOptions = [
+        { value: "interval", label: "间隔" },
+        { value: "daily", label: "每天" },
+        { value: "weekly", label: "每周" },
+        { value: "once", label: "单次" },
+      ];
+
+      return create("div", { className: "dsh-install" },
+        create("div", { style: { display: "flex", gap: 8, alignItems: "center", marginBottom: 12 } },
+          create("h3", { style: { margin: 0, flex: 1, fontSize: 16, color: "var(--dsw-alias-label-primary)" } }, "定时任务"),
+          create(primitives.Button, {
+            variant: "primary",
+            size: "sm",
+            icon: create(primitives.IconPlusOutline16),
+            onClick: openNew,
+          }, "新建任务"),
+          create(primitives.Button, {
+            variant: "outline",
+            size: "sm",
+            onClick: function () { refreshTasks(); refreshRuns(); },
+          }, "刷新")),
+        tasks.length === 0
+          ? create("p", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: 13 } }, "暂无定时任务，点击「新建任务」创建。")
+          : create("div", { className: "dsh-skill-grid" },
+              tasks.map(function (task) {
+                return create("div", { className: "dsh-skill-card", key: task.id },
+                  create("p", { className: "dsh-skill-name" }, task.name),
+                  create("p", { className: "dsh-skill-meta" }, scheduleSummary(task) + (task.enabled ? " · 已启用" : " · 已禁用")),
+                  task.nextRunAt ? create("p", { className: "dsh-skill-meta" }, "下次运行：" + new Date(task.nextRunAt).toLocaleString()) : create("p", { className: "dsh-skill-meta" }, "下次运行：未安排"),
+                  create("div", { className: "dsh-skill-actions" },
+                    create(primitives.Button, { variant: "outline", size: "sm", onClick: function () { toggle(task); } }, task.enabled ? "禁用" : "启用"),
+                    create(primitives.Button, { variant: "primary", size: "sm", onClick: function () { runNow(task); } }, "立即运行"),
+                    create(primitives.Button, { variant: "ghost", size: "sm", onClick: function () { openEdit(task); } }, "编辑"),
+                    create(primitives.Button, { variant: "outline", size: "sm", onClick: function () { remove(task); } }, "删除")));
+              })),
+        create("div", { className: "dsh-install-card", style: { marginTop: 16 } },
+          create("h3", null, "运行记录"),
+          create("p", null, "最近 " + runs.length + " 次运行。"),
+          runs.length === 0
+            ? create("p", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: 13 } }, "暂无运行记录。")
+            : create("div", null,
+                runs.map(function (run) {
+                  return create("div", { className: "dsh-install-item", key: run.id },
+                    create("div", { className: "info" },
+                      create("div", { className: "name" }, run.taskName + " · " + (run.status || "?")),
+                      create("div", { className: "meta" }, new Date(run.startedAt).toLocaleString() + (run.finishedAt ? " → " + new Date(run.finishedAt).toLocaleTimeString() : "") + (run.exitCode !== null && run.exitCode !== undefined ? " · 退出码 " + run.exitCode : ""))),
+                    create(primitives.Button, {
+                      variant: "ghost",
+                      size: "sm",
+                      onClick: function () { openRunDetail(run); },
+                    }, "查看日志"),
+                    create(primitives.Button, {
+                      variant: "outline",
+                      size: "sm",
+                      onClick: function () { deleteRun(run); },
+                    }, "删除"));
+                }))),
+        create(primitives.Modal, {
+          open: formOpen,
+          onClose: function () { setFormOpen(false); setEditing(null); },
+          title: editing && editing.id ? "编辑定时任务" : "新建定时任务",
+          description: "配置执行频率、提示词、模型、权限、技能和前置脚本。",
+          footer: create("div", { style: { display: "flex", gap: 8 } },
+            create(primitives.Button, { variant: "outline", size: "sm", onClick: function () { setFormOpen(false); setEditing(null); } }, "取消"),
+            create(primitives.Button, { variant: "primary", size: "sm", onClick: save }, "保存")),
+        }, create("div", { style: { display: "flex", flexDirection: "column", gap: 10, maxHeight: "60vh", overflowY: "auto", paddingRight: 4 } },
+          create("label", null, "任务名称"),
+          create("input", {
+            className: "dsh-market-bar input",
+            style: { boxSizing: "border-box", width: "100%", background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border)", color: "var(--dsw-alias-label-primary)", borderRadius: 10, padding: "10px 14px", fontSize: 14 },
+            value: editing ? editing.name : "",
+            onChange: function (event) { setForm({ name: event.target.value }); },
+          }),
+          create("label", null, "执行频率"),
+          create("select", {
+            value: formSchedule.type || "interval",
+            onChange: function (event) { setSchedule({ type: event.target.value }); },
+            style: { background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border)", color: "var(--dsw-alias-label-primary)", borderRadius: 10, padding: "10px 14px", fontSize: 14 },
+          }, scheduleOptions.map(function (opt) {
+            return create("option", { key: opt.value, value: opt.value }, opt.label);
+          })),
+          formSchedule.type === "interval"
+            ? create("label", null,
+                "间隔（分钟）",
+                create("input", {
+                  type: "number",
+                  min: 1,
+                  value: formSchedule.intervalMinutes || 60,
+                  onChange: function (event) { setSchedule({ intervalMinutes: Number(event.target.value) || 60 }); },
+                  style: { marginLeft: 8, width: 120, background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border)", color: "var(--dsw-alias-label-primary)", borderRadius: 10, padding: "6px 10px", fontSize: 13 },
+                }))
+            : null,
+          formSchedule.type === "daily" || formSchedule.type === "weekly"
+            ? create("label", null,
+                "时间",
+                create("input", {
+                  type: "time",
+                  value: formSchedule.time || "08:00",
+                  onChange: function (event) { setSchedule({ time: event.target.value }); },
+                  style: { marginLeft: 8, background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border)", color: "var(--dsw-alias-label-primary)", borderRadius: 10, padding: "6px 10px", fontSize: 13 },
+                }))
+            : null,
+          formSchedule.type === "weekly"
+            ? create("label", null,
+                "星期",
+                create("select", {
+                  value: formSchedule.day !== undefined ? formSchedule.day : 1,
+                  onChange: function (event) { setSchedule({ day: Number(event.target.value) }); },
+                  style: { marginLeft: 8, background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border)", color: "var(--dsw-alias-label-primary)", borderRadius: 10, padding: "6px 10px", fontSize: 13 },
+                }, ["日", "一", "二", "三", "四", "五", "六"].map(function (d, i) {
+                  return create("option", { key: i, value: i }, "周" + d);
+                })))
+            : null,
+          formSchedule.type === "once"
+            ? create("label", null,
+                "执行时间",
+                create("input", {
+                  type: "datetime-local",
+                  value: formSchedule.runAt ? new Date(formSchedule.runAt).toISOString().slice(0, 16) : "",
+                  onChange: function (event) { setSchedule({ runAt: new Date(event.target.value).toISOString() }); },
+                  style: { marginLeft: 8, background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border)", color: "var(--dsw-alias-label-primary)", borderRadius: 10, padding: "6px 10px", fontSize: 13 },
+                }))
+            : null,
+          create("label", null, "提示词"),
+          create("textarea", {
+            rows: 8,
+            value: editing ? editing.prompt : "",
+            onChange: function (event) { setForm({ prompt: event.target.value }); },
+            style: { boxSizing: "border-box", width: "100%", minHeight: 180, resize: "vertical", background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border)", color: "var(--dsw-alias-label-primary)", borderRadius: 10, padding: "10px 14px", fontSize: 14, fontFamily: "inherit" },
+          }),
+          create("label", null, "模型（provider/model，可留空）"),
+          create("input", {
+            placeholder: "deepseek-official/deepseek-v4-flash",
+            value: editing ? editing.model : "",
+            onChange: function (event) { setForm({ model: event.target.value }); },
+            style: { boxSizing: "border-box", width: "100%", background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border)", color: "var(--dsw-alias-label-primary)", borderRadius: 10, padding: "10px 14px", fontSize: 14 },
+          }),
+          create("label", null, "权限模式"),
+          create("select", {
+            value: editing ? editing.permissionMode || "workspace-write" : "workspace-write",
+            onChange: function (event) { setForm({ permissionMode: event.target.value }); },
+            style: { background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border)", color: "var(--dsw-alias-label-primary)", borderRadius: 10, padding: "10px 14px", fontSize: 14 },
+          }, ["workspace-write", "danger-full-access", "ask", "never"].map(function (mode) {
+            return create("option", { key: mode, value: mode }, mode);
+          })),
+          create("label", null, "指定技能（可留空）"),
+          create("input", {
+            placeholder: "例如 report",
+            value: editing ? editing.skill : "",
+            onChange: function (event) { setForm({ skill: event.target.value }); },
+            style: { boxSizing: "border-box", width: "100%", background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border)", color: "var(--dsw-alias-label-primary)", borderRadius: 10, padding: "10px 14px", fontSize: 14 },
+          }),
+          create("label", null, "前置脚本（可留空）"),
+          create("textarea", {
+            rows: 4,
+            placeholder: "例如：echo hello",
+            value: editing ? editing.script : "",
+            onChange: function (event) { setForm({ script: event.target.value }); },
+            style: { boxSizing: "border-box", width: "100%", minHeight: 100, resize: "vertical", background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border)", color: "var(--dsw-alias-label-primary)", borderRadius: 10, padding: "10px 14px", fontSize: 14, fontFamily: "monospace" },
+          }),
+          create("label", null, "启用任务",
+            create("input", {
+              type: "checkbox",
+              checked: editing ? Boolean(editing.enabled) : true,
+              onChange: function (event) { setForm({ enabled: event.target.checked }); },
+              style: { marginLeft: 8 },
+            })))),
+        create(primitives.Modal, {
+          open: Boolean(runDetail),
+          onClose: function () { setRunDetail(null); },
+          title: runDetail ? "运行日志 · " + runDetail.taskName : "运行日志",
+          description: runDetail ? new Date(runDetail.startedAt).toLocaleString() : "",
+          footer: create(primitives.Button, { variant: "outline", size: "sm", onClick: function () { setRunDetail(null); } }, "关闭"),
+        }, create("div", null,
+          runDetail && runDetail.error ? create("p", { style: { color: "var(--dsw-alias-error,#f87171)", fontSize: 13 } }, "错误：" + runDetail.error) : null,
+          create("pre", { className: "dsh-connect-log" },
+            (runDetail ? (runDetail.result || "") + "\n\n--- 完整输出 ---\n" + (runDetail.stdout || "") + (runDetail.stderr ? "\n[stderr]\n" + runDetail.stderr : "") : "暂无日志") + "\n"))),
+        create(primitives.Modal, {
+          open: logOpen,
+          onClose: function () { setLogOpen(false); },
+          title: "定时任务 · 操作日志",
+          description: "保存/删除/立即运行等操作的日志。",
+          footer: create(primitives.Button, { variant: "outline", size: "sm", onClick: function () { setLogOpen(false); } }, "关闭"),
+        }, create("pre", { className: "dsh-connect-log" }, (logLines.join("\n") || "暂无日志") + "\n")));
+    }
+
+    function RepairSection() {
+      var create = react.createElement;
+      var useState = react.useState;
+      var useEffect = react.useEffect;
+
+      var itemsState = useState([]);
+      var items = itemsState[0];
+      var setItems = itemsState[1];
+      var scanningState = useState(false);
+      var scanning = scanningState[0];
+      var setScanning = scanningState[1];
+      var logOpenState = useState(false);
+      var logOpen = logOpenState[0];
+      var setLogOpen = logOpenState[1];
+      var logState = useState([]);
+      var logLines = logState[0];
+      var setLogLines = logState[1];
+
+      var api = (typeof window !== "undefined" && window.desktopAPI && window.desktopAPI.repair) ? window.desktopAPI.repair : null;
+
+      var appendLog = function (text) {
+        setLogLines(function (prev) { return prev.concat([text]).slice(-120); });
+      };
+
+      var scan = function () {
+        if (!api) return;
+        setScanning(true);
+        appendLog("===== 扫描会话历史 =====");
+        api.scan().then(function (list) {
+          setItems(list || []);
+          appendLog("扫描完成，发现 " + (list || []).length + " 个损坏会话。");
+        }).catch(function (error) {
+          setLogOpen(true);
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        }).finally(function () {
+          setScanning(false);
+        });
+      };
+
+      useEffect(function () {
+        scan();
+      }, []);
+
+      var repair = function (item) {
+        if (!api) return;
+        setLogOpen(true);
+        appendLog("===== 修复 " + item.path + " =====");
+        api.run(item.path).then(function (result) {
+          appendLog("修复完成：" + (result.ok ? "成功" : "失败") + (result.dropped ? "，删除 " + result.dropped + " 行重复记录" : "") + (result.events !== undefined ? "，事件数 " + result.events : ""));
+          if (result.errors && result.errors.length) appendLog("[错误] " + JSON.stringify(result.errors));
+          scan();
+        }).catch(function (error) {
+          appendLog("[错误] " + (error && error.message ? error.message : error));
+        });
+      };
+
+      return create("div", { className: "dsh-install" },
+        create("div", { style: { display: "flex", gap: 8, alignItems: "center", marginBottom: 12 } },
+          create("h3", { style: { margin: 0, flex: 1, fontSize: 16, color: "var(--dsw-alias-label-primary)" } }, "会话修复"),
+          create(primitives.Button, {
+            variant: "primary",
+            size: "sm",
+            disabled: scanning,
+            onClick: scan,
+          }, scanning ? "扫描中…" : "扫描损坏会话")),
+        create("p", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: 13, lineHeight: 1.6 } },
+          "扫描 ~/.dsh/sessions 下所有 session.jsonl.zstd，检测历史记录中的 seq 重复/乱序。修复前会自动备份原文件。"),
+        items.length === 0
+          ? create("p", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: 13 } }, scanning ? "正在扫描…" : "没有发现损坏的会话。")
+          : create("div", null,
+              items.map(function (item) {
+                return create("div", { className: "dsh-install-item", key: item.path },
+                  create("div", { className: "info" },
+                    create("div", { className: "name" }, item.path.split(/[\\/]/).slice(-3).join("/")),
+                    create("div", { className: "meta" }, (item.events !== undefined ? "事件数 " + item.events + " · " : "") + (item.errors && item.errors[0] ? "错误：" + JSON.stringify(item.errors[0]) : ""))),
+                  create(primitives.Button, {
+                    variant: "primary",
+                    size: "sm",
+                    onClick: function () { repair(item); },
+                  }, "修复"));
+              })),
+        create(primitives.Modal, {
+          open: logOpen,
+          onClose: function () { setLogOpen(false); },
+          title: "会话修复 · 日志",
+          description: "扫描和修复过程的输出。",
+          footer: create(primitives.Button, { variant: "outline", size: "sm", onClick: function () { setLogOpen(false); } }, "关闭"),
+        }, create("pre", { className: "dsh-connect-log" }, (logLines.join("\n") || "暂无日志") + "\n")));
+    }
+
     var inject = ["slots", "connection"];
     function apply(ctx) {
       hostApi = ctx.get("connection") ? ctx.get("connection").api : null;
@@ -1085,6 +1867,30 @@ window.__ModuleLoader__.load({
           order: 20,
           label: "插件安装"
         }, PluginInstallTab);
+      });
+      ctx.slots.inject("settings.section", function () {
+        return ctx.slots.register({
+          name: "settings.section",
+          id: "skills",
+          order: 85,
+          label: "技能"
+        }, SkillSection);
+      });
+      ctx.slots.inject("settings.section", function () {
+        return ctx.slots.register({
+          name: "settings.section",
+          id: "scheduler",
+          order: 90,
+          label: "定时任务"
+        }, SchedulerSection);
+      });
+      ctx.slots.inject("settings.section", function () {
+        return ctx.slots.register({
+          name: "settings.section",
+          id: "session-repair",
+          order: 95,
+          label: "会话修复"
+        }, RepairSection);
       });
     }
 
