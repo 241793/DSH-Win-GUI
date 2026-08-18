@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'" />
+    <title>DSH 更新进度</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="progress-body">
+    <main class="progress-shell">
+      <h1>DeepSeek Harness 更新</h1>
+      <p class="subtitle">正在更新 dsh，请勿关闭窗口</p>
+      <div class="progress-track"><div id="update-progress-bar" class="progress-bar"></div></div>
+      <div id="update-stage" class="stage">准备中…</div>
+      <pre id="update-log" class="log"></pre>
+    </main>
+    <script src="update-progress.js"></script>
+  </body>
+</html>

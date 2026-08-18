@@ -1,11 +1,11 @@
 'use strict';
 
 const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } = require('electron');
-const { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } = require('node:fs');
+const { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } = require('node:fs');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { compareVersions, downloadFile, envWithNodePath } = require('./util');
+const { compareVersions, downloadFile, envWithNodePath, resolveNpmCli } = require('./util');
 
 const detector = require('./detector');
 const installer = require('./installer');
@@ -19,9 +19,10 @@ let backendChild = null;
 let backendUrl = null;
 let ccTuiProgressWindow = null;
 let ccTuiOpening = false;
+let updateProgressWindow = null;
 
 const APP_ICON = path.join(__dirname, '..', '..', 'assets', 'icon.png');
-const CC_TUI_PACKAGE = 'dsh-tui';
+const CC_TUI_PACKAGE = 'dsh-cc-tui';
 const CC_TUI_PROFILE = 'cc-tui';
 const CC_TUI_PROFILE_CANDIDATES = ['cc-tui', 'tui'];
 const CC_TUI_REPO = 'https://github.com/ccch1mneyyy/dsh-TUI';
@@ -112,15 +113,38 @@ function parseUrl(value) {
 }
 
 /**
- * 检测 CC-TUI 安装到了哪个 profile。
- * 只要 profile 目录存在且有 package.json 就算已安装（用户手动 dsh --profile cc-tui 能跑就行）。
- * 支持 cc-tui（用户手动安装）和 tui（历史/自动安装）两种 profile 名。
- * @returns {string|null} 已安装的 profile 名；未安装返回 null。
+ * 判断某个 profile 是否真的装好了可启动的 CC-TUI。
+ * 历史安装会用旧包名 `dsh-tui`，它不会挂到 bundle 上，`dsh --profile tui`
+ * 启动后只会空转（终端一直加载不出来）；因此这里必须确认 manifest 声明了
+ * `dsh-cc-tui` bundle 且 node_modules 里确实存在该包。
+ * @param {string} profileDirPath profile 目录绝对路径
+ * @returns {boolean} 是否为可启动的 CC-TUI profile
+ */
+function profileHasCcTui(profileDirPath) {
+  try {
+    const manifest = JSON.parse(readFileSync(path.join(profileDirPath, 'package.json'), 'utf8'));
+    const deps = { ...(manifest.dependencies || {}), ...(manifest.devDependencies || {}) };
+    const bundles = manifest.dsh && manifest.dsh.profile && Array.isArray(manifest.dsh.profile.bundles)
+      ? manifest.dsh.profile.bundles
+      : [];
+    const declared = Boolean(deps[CC_TUI_PACKAGE] || bundles.includes(CC_TUI_PACKAGE));
+    const installed = existsSync(path.join(profileDirPath, 'node_modules', CC_TUI_PACKAGE, 'package.json'));
+    return declared && installed;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 检测 CC-TUI 安装到了哪个可用的 profile。
+ * 支持 cc-tui（用户手动安装）和 tui（历史/自动安装）两种 profile 名，
+ * 但只有真正挂载了 dsh-cc-tui bundle 的 profile 才会被返回。
+ * @returns {string|null} 已安装且可用的 profile 名；未安装或已损坏返回 null。
  */
 function detectCcTuiProfile() {
   for (const profileName of CC_TUI_PROFILE_CANDIDATES) {
     const dir = channels.profileDir(profileName);
-    if (existsSync(path.join(dir, 'package.json'))) return profileName;
+    if (profileHasCcTui(dir)) return profileName;
   }
   return null;
 }
@@ -163,6 +187,48 @@ function closeCcTuiProgressWindow() {
   if (ccTuiProgressWindow && !ccTuiProgressWindow.isDestroyed()) {
     ccTuiProgressWindow.close();
     ccTuiProgressWindow = null;
+  }
+}
+
+/** 打开 DSH 更新进度窗口；返回 Promise，在页面加载完成后 resolve，避免早期日志丢失。 */
+function showUpdateProgressWindow() {
+  if (updateProgressWindow && !updateProgressWindow.isDestroyed()) {
+    updateProgressWindow.focus();
+    return Promise.resolve();
+  }
+  updateProgressWindow = new BrowserWindow({
+    width: 640,
+    height: 420,
+    title: 'DSH 更新进度',
+    backgroundColor: '#0b0f14',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, '..', 'preload', 'update-progress-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  const loaded = new Promise((resolve) => {
+    updateProgressWindow.webContents.once('did-finish-load', () => resolve());
+  });
+  updateProgressWindow.loadFile(path.join(__dirname, '..', 'renderer', 'update-progress.html'));
+  updateProgressWindow.on('closed', () => { updateProgressWindow = null; });
+  return loaded;
+}
+
+/** 把 DSH 更新进度发给更新进度窗口。 */
+function sendUpdateProgress(payload) {
+  if (updateProgressWindow && !updateProgressWindow.isDestroyed()) {
+    updateProgressWindow.webContents.send('update-progress', payload);
+  }
+}
+
+/** 关闭 DSH 更新进度窗口（如果开着）。 */
+function closeUpdateProgressWindow() {
+  if (updateProgressWindow && !updateProgressWindow.isDestroyed()) {
+    updateProgressWindow.close();
+    updateProgressWindow = null;
   }
 }
 
@@ -229,24 +295,22 @@ function openCcTuiTerminal(dsh, profileName = CC_TUI_PROFILE) {
   const { nodePath, binPath, prefix } = dsh;
   if (process.platform === 'win32') {
     const nodeDir = path.dirname(nodePath);
+    const dshCmd = prefix ? path.join(prefix, 'dsh.cmd') : null;
+    const useDshCmd = dshCmd && existsSync(dshCmd);
+
     const batchFile = path.join(app.getPath('temp'), 'dsh-cc-tui-launcher.cmd');
-    // 始终用检测到的绝对路径直接调用 node + bin.js（和启动 dsh web 用的是同一套路径），
-    // 不依赖 dsh.cmd 是否存在，避免不同电脑环境差异导致黑屏。
-    writeFileSync(batchFile, [
+    const lines = [
       '@echo off',
       `set "PATH=${nodeDir}${prefix ? ';' + prefix : ''};%PATH%"`,
       'cd /d "%USERPROFILE%"',
-      `"${nodePath}" "${binPath}" --profile ${profileName}`,
-      'if %ERRORLEVEL% NEQ 0 (',
-      '  echo.',
-      `  echo CC-TUI 启动失败，退出码：%ERRORLEVEL%`,
-      '  echo node: ' + nodePath,
-      '  echo dsh: ' + binPath,
-      '  echo profile: ' + profileName,
-      '  pause',
-      ')',
-      '',
-    ].join('\r\n'));
+    ];
+    if (useDshCmd) {
+      lines.push(`call dsh --profile ${profileName}`);
+    } else {
+      lines.push(`"${nodePath}" "${binPath}" --profile ${profileName}`);
+    }
+    lines.push('if %ERRORLEVEL% NEQ 0 (', '  echo.', '  echo CC-TUI 启动失败，退出码：%ERRORLEVEL%', '  pause', ')', '');
+    writeFileSync(batchFile, lines.join('\r\n'));
 
     const child = spawn(
       'cmd.exe',
@@ -405,6 +469,13 @@ function buildMenu() {
 /** 检查 dsh 更新：有新版弹窗询问是否更新。 */
 async function checkDshUpdate() {
   const detection = await detector.detectAll(managedDirs());
+  logUpdateDebug('checkDshUpdate', {
+    ready: detection.ready,
+    nodePath: detection.node && detection.node.path,
+    npmCliPath: detection.node && detection.node.npm && detection.node.npm.cliPath,
+    dshVersion: detection.dsh && detection.dsh.version,
+    dshSource: detection.dsh && detection.dsh.source,
+  });
   if (!detection.ready || !detection.dsh || !detection.dsh.version) {
     await dialog.showMessageBox(mainWindow, {
       type: 'info',
@@ -442,7 +513,19 @@ async function checkDshUpdate() {
       cancelId: 1,
     });
     if (result.response === 0) {
-      await runDshUpdate(detection, latestVersion);
+      try {
+        await runDshUpdate(detection, latestVersion);
+      } catch (error) {
+        sendUpdateProgress({ type: 'log', message: `更新失败：${error && error.message ? error.message : error}` });
+        closeUpdateProgressWindow();
+        await dialog.showMessageBox(mainWindow, {
+          type: 'error',
+          title: '检查DSH更新',
+          message: 'dsh 更新失败',
+          detail: error && error.message ? error.message : String(error),
+          buttons: ['确定'],
+        });
+      }
     }
   } else {
     await dialog.showMessageBox(mainWindow, {
@@ -455,21 +538,122 @@ async function checkDshUpdate() {
   }
 }
 
-/** 执行 dsh 全局更新并重启后端。 */
+/** 执行 dsh 全局更新并重启后端；更新过程会显示独立进度窗口。 */
 async function runDshUpdate(detection, latestVersion) {
-  const { nodePath, npmCliPath } = detection.node || {};
-  if (!nodePath || !npmCliPath) throw new Error('未找到可用的 Node/npm，无法更新 dsh。');
-  const args = [npmCliPath, 'install', '-g', `@deepseek-ai/dsh@${latestVersion}`, '--registry', 'https://registry.npmmirror.com'];
-  const { spawn } = require('node:child_process');
-  await new Promise((resolve, reject) => {
-    const child = spawn(nodePath, args, { windowsHide: true, stdio: 'ignore', env: envWithNodePath(nodePath) });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`dsh 更新失败（退出码 ${code}）`));
-    });
+  logUpdateDebug('runDshUpdate-start', {
+    hasDetection: Boolean(detection),
+    ready: detection && detection.ready,
+    nodePath: detection && detection.node && detection.node.path,
+    npmCliPath: detection && detection.node && detection.node.npm && detection.node.npm.cliPath,
+    dshVersion: detection && detection.dsh && detection.dsh.version,
   });
+
+  // 防御：菜单检测和点击「立即更新」之间可能因为环境变化导致 node/npm 丢失，
+  // 这里拿不到可用 Node/npm 时重新检测一次，避免直接报错。
+  let currentDetection = detection;
+  if (!currentDetection || !currentDetection.node || !currentDetection.node.path || !currentDetection.node.npm || !currentDetection.node.npm.cliPath) {
+    logUpdateDebug('runDshUpdate-redetect', { reason: 'node-or-npm-missing' });
+    currentDetection = await detector.detectAll(managedDirs());
+    logUpdateDebug('runDshUpdate-redetect-done', {
+      ready: currentDetection.ready,
+      nodePath: currentDetection.node && currentDetection.node.path,
+      npmCliPath: currentDetection.node && currentDetection.node.npm && currentDetection.node.npm.cliPath,
+    });
+  }
+  // 注意：detectAll 返回的 node 对象字段是 path / npm.cliPath，不是 nodePath / npmCliPath。
+  const nodeInfo = currentDetection.node || {};
+  const nodePath = nodeInfo.path;
+  const npmCliPath = nodeInfo.npm && nodeInfo.npm.cliPath;
+  // 即使 probe 阶段没拿到 npm-cli.js，只要 node 路径在，就再尝试按目录解析一次。
+  const resolvedNpmCli = npmCliPath || (nodePath ? resolveNpmCli(nodePath) : null);
+  if (!nodePath || !resolvedNpmCli) {
+    logUpdateDebug('runDshUpdate-no-node-npm', {
+      ready: currentDetection.ready,
+      nodePath,
+      npmCliPath,
+      resolvedNpmCli,
+    });
+    throw new Error('未找到可用的 Node/npm，无法更新 dsh。请先确认系统已安装 Node.js（≥ 22.5.0）且 npm 可用，然后重新打开应用重试。');
+  }
+
+  await showUpdateProgressWindow();
+  sendUpdateProgress({ type: 'log', message: `开始更新 DeepSeek Harness：v${currentDetection.dsh && currentDetection.dsh.version ? currentDetection.dsh.version : '?'} → v${latestVersion}` });
+  sendUpdateProgress({ type: 'log', message: '正在停止 dsh web，避免更新全局包时文件被占用…' });
+
+  // 先停掉正在运行的 dsh web：Windows 下如果 dsh 正从全局目录运行，
+  // npm 替换 @deepseek-ai/dsh 时可能因为文件占用/半更新导致 dsh 损坏。
+  backend.stopBackend(backendChild);
+  backendChild = null;
+  backendUrl = null;
+
+  sendUpdateProgress({ type: 'log', message: `执行：npm install -g @deepseek-ai/dsh@${latestVersion}（npmmirror）` });
+
+  let code;
+  const heartbeat = setInterval(() => {
+    sendUpdateProgress({ type: 'log', message: '正在下载/安装依赖，请耐心等待（npm 可能长时间没有新输出）…' });
+  }, 10000);
+  heartbeat.unref && heartbeat.unref();
+  try {
+    code = await channels.runWithOutput(nodePath, [
+      resolvedNpmCli,
+      'install',
+      '-g',
+      `@deepseek-ai/dsh@${latestVersion}`,
+      '--registry', 'https://registry.npmmirror.com',
+      '--no-audit',
+      '--no-fund',
+      '--fetch-retries', '3',
+      '--fetch-timeout', '120000',
+    ], {
+      cwd: app.getPath('home'),
+      env: envWithNodePath(nodePath),
+    }, (payload) => sendUpdateProgress(payload));
+  } catch (error) {
+    clearInterval(heartbeat);
+    sendUpdateProgress({ type: 'log', message: `更新命令启动失败：${error && error.message ? error.message : error}` });
+    await tryRestartBackendAfterUpdateFailure();
+    throw error;
+  }
+  clearInterval(heartbeat);
+  logUpdateDebug('runDshUpdate-npm-done', { code });
+
+  if (code !== 0) {
+    sendUpdateProgress({ type: 'log', message: `npm install 退出码 ${code}，尝试用 npm update -g 修复/更新…` });
+    const fallbackArgs = [
+      resolvedNpmCli,
+      'update',
+      '-g',
+      '@deepseek-ai/dsh',
+      '--registry', 'https://registry.npmmirror.com',
+      '--no-audit',
+      '--no-fund',
+      '--fetch-retries', '3',
+      '--fetch-timeout', '120000',
+    ];
+    let fallbackCode = 1;
+    try {
+      fallbackCode = await channels.runWithOutput(nodePath, fallbackArgs, {
+        cwd: app.getPath('home'),
+        env: envWithNodePath(nodePath),
+      }, (payload) => sendUpdateProgress(payload));
+    } catch (error) {
+      sendUpdateProgress({ type: 'log', message: `npm update 启动失败：${error && error.message ? error.message : error}` });
+      await tryRestartBackendAfterUpdateFailure();
+      throw error;
+    }
+    if (fallbackCode !== 0) {
+      sendUpdateProgress({ type: 'log', message: `npm update 也失败（退出码 ${fallbackCode}），尝试恢复 dsh web…` });
+      await tryRestartBackendAfterUpdateFailure();
+      throw new Error(`dsh 更新失败（install 退出码 ${code}，update 退出码 ${fallbackCode}）`);
+    }
+    sendUpdateProgress({ type: 'log', message: 'npm update 已修复/完成，继续重启 dsh web…' });
+  }
+
+  sendUpdateProgress({ type: 'log', message: '更新完成，正在重启 dsh web…' });
   await restartHarnessBackend();
+  sendUpdateProgress({ type: 'done', message: `dsh 已更新到 v${latestVersion}` });
+  setTimeout(closeUpdateProgressWindow, 1200);
+
   await dialog.showMessageBox(mainWindow, {
     type: 'info',
     title: '检查DSH更新',
@@ -513,7 +697,9 @@ async function uninstallDsh() {
       const prefix = managedDirs().prefix;
       rmSync(prefix, { recursive: true, force: true });
     } else {
-      const { nodePath, npmCliPath } = detection.node || {};
+      const nodeInfo = detection.node || {};
+      const nodePath = nodeInfo.path;
+      const npmCliPath = nodeInfo.npm && nodeInfo.npm.cliPath;
       if (!nodePath || !npmCliPath) throw new Error('未找到可用的 Node/npm，无法卸载全局 dsh。');
       const { spawn } = require('node:child_process');
       await new Promise((resolve, reject) => {
@@ -591,10 +777,35 @@ async function restartHarnessBackend() {
   return { url: started.url };
 }
 
+/** 更新失败后尽量把 dsh web 拉回来，避免用户被留在无法启动的状态。 */
+async function tryRestartBackendAfterUpdateFailure() {
+  try {
+    await restartHarnessBackend();
+    sendUpdateProgress({ type: 'log', message: '已尝试重新启动 dsh web。' });
+  } catch (error) {
+    sendUpdateProgress({ type: 'log', message: `dsh web 恢复失败：${error && error.message ? error.message : error}` });
+  }
+}
+
 function sendToRenderer(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload);
   }
+}
+
+/** 把更新检测/执行的关键信息追加到 userData/logs/update-debug.log，便于排查。 */
+function logUpdateDebug(step, extra) {
+  try {
+    const logDir = path.join(app.getPath('userData'), 'logs');
+    mkdirSync(logDir, { recursive: true });
+    const summary = {
+      time: new Date().toISOString(),
+      step,
+      pathEnv: process.env.PATH || '',
+      ...(extra || {}),
+    };
+    appendFileSync(path.join(logDir, 'update-debug.log'), `${JSON.stringify(summary)}\n`);
+  } catch { /* 日志失败不影响主流程 */ }
 }
 
 function registerIpc() {

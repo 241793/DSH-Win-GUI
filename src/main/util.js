@@ -14,9 +14,10 @@ function sleep(ms) {
 }
 
 function parseVersion(text) {
-  const match = String(text).trim().match(/^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  const match = String(text).trim().match(/^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-.](\S+))?/);
   if (!match) return null;
-  return [Number(match[1]), Number(match[2] || 0), Number(match[3] || 0)];
+  const prerelease = match[4] || '';
+  return [Number(match[1]), Number(match[2] || 0), Number(match[3] || 0), prerelease];
 }
 
 function compareVersions(a, b) {
@@ -26,7 +27,18 @@ function compareVersions(a, b) {
   for (let i = 0; i < 3; i += 1) {
     if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
   }
-  return 0;
+  // 主版本号相同时，比较 pre-release 后缀（如 rc.7 > rc.6）。
+  const preA = pa[3] || '';
+  const preB = pb[3] || '';
+  if (preA === preB) return 0;
+  // 没有 pre-release 的版本更高（正式版 > rc 版）
+  if (!preA && preB) return 1;
+  if (preA && !preB) return -1;
+  // 都有 pre-release，提取最后的数字比较
+  const numA = parseInt(String(preA).match(/(\d+)\s*$/)?.[1] || '0', 10);
+  const numB = parseInt(String(preB).match(/(\d+)\s*$/)?.[1] || '0', 10);
+  if (numA !== numB) return numA < numB ? -1 : 1;
+  return String(preA) < String(preB) ? -1 : 1;
 }
 
 function versionAtLeast(version, minVersion) {

@@ -2,14 +2,9 @@
 
 基于 Electron 的 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) Windows 桌面启动器。它不重新实现 Harness，而是把官方 `dsh web` 服务包装成一个**双击即开、缺组件自动下载安装**的桌面程序，并在此基础上提供互联渠道、插件市场、插件安装等增强功能。
 
-目的：初心是为想体验Harness的佬友提供安装便捷操作，无需输入命令，打开自动检测是否安装必要依赖，一个exe程序即可可视化安装以及dsh基础便捷操作，新增插件可在设置直接导入，无需命令
-
 > 官方 CLI：`@deepseek-ai/dsh`（`dsh` 命令）。本项目是官方预留 Electron 壳形态的实用实现：Electron 主进程负责检测、安装、拉起后端，窗口加载官方 Web UI。
 
 ---
-<img width="1676" height="915" alt="2265f588-477d-4f46-829b-37d2b6d04add" src="https://github.com/user-attachments/assets/c1b29262-479d-46ff-a3e3-2a56d50b85f9" />
-<img width="1620" height="906" alt="2e1ac705-bdcf-47be-9873-f918bf8d7656" src="https://github.com/user-attachments/assets/6c924620-4ec9-4e7f-9c59-b53595083214" />
-
 
 ## 1. 功能特性
 
@@ -23,8 +18,8 @@
   3. 实时显示下载进度与 npm 日志。
 - **启动 Harness**：拉起 `dsh web --port 0`，解析真实端口，把窗口导航到 `http://127.0.0.1:<端口>`。
 - **退出清理**：应用退出时 `taskkill /T /F` 清理后端进程树。
-- **检查 DSH 更新**：菜单栏「检查DSH更新」，从 npmmirror 获取最新版本，有新版本弹窗询问是否更新；更新完成后自动重启 dsh web。
-- **CC-TUI 终端修复**：菜单栏「帮助」旁的「CC-TUI」或启动报错页的「CC-TUI 终端修复」按钮，会检测是否已安装 [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)（支持 `cc-tui` / `tui` 两种 profile）；未安装则自动安装（优先 npmmirror 的 `dsh-tui` 包，失败时回退 GitHub tarball）并显示进度，已安装则打开系统终端里的 `dsh --profile cc-tui` 原生交互界面，方便 dsh web 报错时通过终端排查修复。
+- **检查 DSH 更新**：菜单栏「检查DSH更新」，从 npmmirror 获取最新版本，有新版本弹窗询问是否更新；点击「立即更新」后会弹出独立的「DSH 更新进度」窗口实时显示 npm 安装日志，更新完成后自动重启 dsh web。
+- **CC-TUI 终端修复**：菜单栏「帮助」旁的「CC-TUI」或启动报错页的「CC-TUI 终端修复」按钮，会检测是否已安装 [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)（支持 `cc-tui` / `tui` 两种 profile，且会校验是否真正挂载了 `dsh-cc-tui` bundle）；未安装或历史 `dsh-tui` 包损坏则自动安装（优先 npmmirror 的 `dsh-cc-tui` 包，失败时回退 GitHub tarball）并显示进度，已安装则打开系统终端里的 `dsh --profile cc-tui` 原生交互界面，方便 dsh web 报错时通过终端排查修复。
 
 ### 1.2 互联（渠道对接，集成在 Harness Web UI）
 
