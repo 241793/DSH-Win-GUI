@@ -4,6 +4,10 @@
 
 > 官方 CLI：`@deepseek-ai/dsh`（`dsh` 命令）。本项目是官方预留 Electron 壳形态的实用实现：Electron 主进程负责检测、安装、拉起后端，窗口加载官方 Web UI。
 
+使用教程：下载安装即可https://github.com/241793/DSH-Win-GUI/releases/download/0.1.0/DeepSeek.Harness-Setup-0.1.0.exe
+<img width="982" height="883" alt="f0b2e445-0f06-41c5-8955-edcd6898a7b6" src="https://github.com/user-attachments/assets/81dbf920-ab3f-4095-bc97-c51c8b70092d" />
+<img width="969" height="885" alt="image" src="https://github.com/user-attachments/assets/c2ac1051-9111-413e-8116-bc4f3cdf3607" />
+
 ---
 
 ## 1. 功能特性
